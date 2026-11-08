@@ -164,7 +164,7 @@ function show(res){
       sb.innerHTML = `<div class="summary-title">✔ ${res.signatures_found} Signature${res.signatures_found > 1 ? "s" : ""} Located</div><div class="summary-desc">Located and bounded on the scanned document preview on the left.</div>`;
     } else {
       sb.className = "summary-box empty";
-      sb.innerHTML = `<div class="summary-title">✖ No Signatures Located</div><div class="summary-desc">${res.error_message || "No signatures were detected with confidence ≥ 30% on this page. Please ensure the document is clear, correctly oriented, and well-lit."}</div>`;
+      sb.innerHTML = `<div class="summary-title">✖ No Signatures Located</div><div class="summary-desc">${res.error_message || "No signatures were detected with confidence ≥ 38.5% on this page. Please ensure the document is clear, correctly oriented, and well-lit."}</div>`;
     }
   }
 
