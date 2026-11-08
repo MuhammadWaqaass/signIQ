@@ -1,5 +1,66 @@
-<!doctype html><html lang="en"><head><title>Signature detection – SignIQ</title><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="preconnect" href="https://fonts.googleapis.com"><link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:wght@800&family=Inter:wght@400;600&family=Instrument+Serif:ital@1&family=JetBrains+Mono:wght@500&display=swap" rel="stylesheet"><link rel="stylesheet" href="css/style.css"></head><body data-mode="detect"><header><div class="wrap"><a class="logo" href="index.html"><i>s</i>SignIQ</a><nav><a href="index.html#how">How it works</a><a href="detect.html">Detection</a><a href="similarity.html">Similarity</a><a href="index.html#about">About us</a></nav><a class="btn sm" href="detect.html">Try it now</a><button class="burger" aria-label="Menu" aria-expanded="false"><b></b></button></div></header>
-<section class="tool"><div class="wrap"><p class="tag">01 · Detection</p><h1>Find every <em>signature</em> on the page.</h1><p style="max-width:620px;font-size:15px">Upload a document and we will outline each signature we find, with a confidence score.</p>
-<div class="drops"><label class="drop"><input type="file" name="document" accept="image/png,image/jpeg,image/webp"><button type="button" class="drop-remove" title="Remove image">✕</button><div class="drop-content"><span class="drop-badge">✔ Uploaded</span><img class="drop-preview" alt="Preview"><b>Document image</b><span>Drop or click · PNG, JPG, WebP · max 10 MB</span></div></label></div><button class="btn" id="run">Run the check →</button><div id="status"></div>
-<div id="out" class="out-grid"><div class="results-toolbar"><div class="toolbar-title"><span>🔍 Detection Results</span></div><div class="toolbar-actions"><button type="button" class="btn" id="btn-next">Scan Next Document ↺</button></div></div><div class="doc-panel"><div class="doc-panel-header"><span class="doc-panel-title">📄 Document Overview</span><span id="doc-badge" class="chip">0 Found</span></div><div class="canvas-wrap"><canvas id="cv"></canvas></div></div><div class="results-panel"><div id="summary-box" class="summary-box"></div><div class="res" id="res"></div></div></div></div></section><footer><div class="wrap"><span class="mono">© 2026 SignIQ · Built with open-licence models</span><a class="btn sm" href="detect.html">Try it now</a></div></footer>
-<script src="js/main.js"></script><script src="js/config.js"></script><script src="js/api.js"></script><script src="js/tool.js"></script></body></html>
+<!doctype html>
+<html lang="en">
+
+<head>
+    <title>Signature detection – SignIQ</title>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link
+        href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:wght@800&family=Inter:wght@400;600&family=Instrument+Serif:ital@1&family=JetBrains+Mono:wght@500&display=swap"
+        rel="stylesheet">
+    <link rel="stylesheet" href="css/style.css">
+</head>
+
+<body data-mode="detect">
+    <header>
+        <div class="wrap"><a class="logo" href="index.html"><i>s</i>SignIQ</a>
+            <nav><a href="index.html#how">How it works</a><a href="detect.html">Detection</a><a
+                    href="similarity.html">Similarity</a><a href="index.html#about">About us</a></nav><a class="btn sm"
+                href="detect.html">Try it now</a><button class="burger" aria-label="Menu"
+                aria-expanded="false"><b></b></button>
+        </div>
+    </header>
+    <section class="tool">
+        <div class="wrap">
+            <p class="tag">01 · Detection</p>
+            <h1>Find every <em>signature</em> on the page.</h1>
+            <p style="max-width:620px;font-size:15px">Upload a document and we will outline each signature we find, with
+                a confidence score.</p>
+            <div class="drops"><label class="drop"><input type="file" name="document"
+                        accept="image/png,image/jpeg,image/webp"><button type="button" class="drop-remove"
+                        title="Remove image">✕</button>
+                    <div class="drop-content"><span class="drop-badge">Upload Here</span><img class="drop-preview"
+                            alt="Preview"><b>Document image</b><span>Drop or click · PNG, JPG, WebP · max 10 MB</span>
+                    </div>
+                </label></div><button class="btn" id="run">Run the check →</button>
+            <div id="status"></div>
+            <div id="out" class="out-grid">
+                <div class="results-toolbar">
+                    <div class="toolbar-title"><span>🔍 Detection Results</span></div>
+                    <div class="toolbar-actions"><button type="button" class="btn" id="btn-next">Scan Next Document
+                            ↺</button></div>
+                </div>
+                <div class="doc-panel">
+                    <div class="doc-panel-header"><span class="doc-panel-title">📄 Document Overview</span><span
+                            id="doc-badge" class="chip">0 Found</span></div>
+                    <div class="canvas-wrap"><canvas id="cv"></canvas></div>
+                </div>
+                <div class="results-panel">
+                    <div id="summary-box" class="summary-box"></div>
+                    <div class="res" id="res"></div>
+                </div>
+            </div>
+        </div>
+    </section>
+    <footer>
+        <div class="wrap"><span class="mono">© 2026 SignIQ · Built with open-licence models</span><a class="btn sm"
+                href="detect.html">Try it now</a></div>
+    </footer>
+    <script src="js/main.js"></script>
+    <script src="js/config.js"></script>
+    <script src="js/api.js"></script>
+    <script src="js/tool.js"></script>
+</body>
+
+</html>
