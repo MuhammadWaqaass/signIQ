@@ -1,0 +1,40 @@
+# Virtual environment
+.venv/
+venv/
+ENV/
+env/
+
+# Environment variables & secrets
+.env
+.env.*
+!.env.example
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.pytest_cache/
+
+# SQLite & local databases
+*.db
+*.sqlite
+*.sqlite3
+
+# Uploaded test & runtime data
+data/
+uploads/
+
+# Model weights (large files > 100MB, downloaded automatically from HF Hub)
+weights/
+*.pt
+*.pth
+*.bin
+*.onnx
+
+# OS / IDE files
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp

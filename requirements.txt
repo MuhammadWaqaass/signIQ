@@ -1,0 +1,13 @@
+fastapi
+uvicorn[standard]
+python-multipart
+celery
+redis
+sqlalchemy
+python-dotenv
+pillow
+numpy
+huggingface_hub
+torch
+torchvision
+libreyolo
