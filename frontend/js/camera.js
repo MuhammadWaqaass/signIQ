@@ -1,213 +1,269 @@
 /**
- * camera.js — Live camera capture for SignIQ
- * Snap → flash → preview immediately (no countdown).
- * "Use This" injects JPEG blob into the existing drop zone / files{} pipeline.
+ * camera.js — Compact, theme-matching live camera capture for SignIQ
+ * 
+ * Features:
+ * - Stylish camera button integrated right into the upload drop box
+ * - Compact modal dialog matching SignIQ's design system
+ * - Instant capture without lag
+ * - On capture: live camera vanishes completely, only photo + 2 prominent theme buttons appear
+ * - Retake restarts camera; Use Photo injects file directly into SignIQ pipeline
  */
 (function () {
   document.addEventListener("DOMContentLoaded", () => {
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) return;
 
-    /* ── Build modal once ─────────────────────────────────────────── */
+    /* ── Inject Modal HTML ────────────────────────────────────────── */
     document.body.insertAdjacentHTML("beforeend", `
-<div id="cam-modal" role="dialog" aria-modal="true" aria-label="Camera capture">
-  <div id="cam-bd"></div>
-  <div id="cam-shell">
-
-    <!-- ① LIVE VIEW (shown first) -->
-    <div id="cam-live">
-      <video id="cam-vid" autoplay playsinline muted></video>
-
-      <!-- corner guide brackets -->
-      <div id="cam-corners">
-        <i class="cc tl"></i><i class="cc tr"></i>
-        <i class="cc bl"></i><i class="cc br"></i>
+<div id="cam-modal" class="cam-modal" aria-hidden="true" role="dialog">
+  <div id="cam-bd" class="cam-backdrop"></div>
+  <div class="cam-card">
+    
+    <!-- Top Header -->
+    <div class="cam-header">
+      <div class="cam-title">
+        <span class="cam-title-icon">📷</span>
+        <span id="cam-heading">Camera Capture</span>
       </div>
-
-      <!-- white flash overlay -->
-      <div id="cam-flash"></div>
-
-      <!-- top bar: label + close -->
-      <div id="cam-top">
-        <span id="cam-lbl" class="cmono">📷 Camera</span>
-        <button id="cam-x" aria-label="Close">✕</button>
-      </div>
-
-      <!-- bottom bar: flip + shutter + spacer -->
-      <div id="cam-bar">
-        <button id="cam-flip" aria-label="Flip camera" title="Switch camera">
-          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 4v6h6"/><path d="M23 20v-6h-6"/><path d="M20.49 9A9 9 0 0 0 5.64 5.64L1 10m22 4-4.64 4.36A9 9 0 0 1 3.51 15"/></svg>
-        </button>
-        <button id="cam-snap" aria-label="Take photo">
-          <span id="cam-ring"></span>
-        </button>
-        <div style="width:48px"></div>
-      </div>
-
-      <!-- hint -->
-      <div id="cam-hint" class="cmono">Keep document flat &amp; in frame</div>
+      <button type="button" id="cam-close" class="cam-btn-close" aria-label="Close">✕</button>
     </div>
 
-    <!-- ② PREVIEW VIEW (hidden until snap) -->
-    <div id="cam-prev" hidden>
-      <img id="cam-img" alt="Captured photo">
-      <div id="cam-prev-actions">
-        <button id="cam-retake">↩ Retake</button>
-        <button id="cam-use">✓ Use This Photo</button>
+    <!-- Live Viewfinder -->
+    <div id="cam-live-box" class="cam-stage">
+      <div class="cam-viewfinder">
+        <video id="cam-vid" autoplay playsinline muted></video>
+        <div class="cam-brackets">
+          <span class="b-tl"></span><span class="b-tr"></span>
+          <span class="b-bl"></span><span class="b-br"></span>
+        </div>
+        <div id="cam-flash" class="cam-flash"></div>
+      </div>
+      <p class="cam-tip">Center signature or document inside the frame</p>
+      <div class="cam-controls">
+        <button type="button" id="cam-flip" class="cam-btn-flip" title="Switch camera" aria-label="Switch camera">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M20 10c0-4.418-3.582-8-8-8s-8 3.582-8 8v2"/>
+            <path d="m7 9-3 3-3-3"/>
+            <path d="M4 14c0 4.418 3.582 8 8 8s8-3.582 8-8v-2"/>
+            <path d="m17 15 3-3 3 3"/>
+          </svg>
+        </button>
+        <button type="button" id="cam-snap" class="cam-btn-shutter" aria-label="Take Photo">
+          <span class="shutter-core"></span>
+        </button>
+        <div class="cam-control-spacer"></div>
+      </div>
+    </div>
+
+    <!-- Preview View (Displaces camera on snap) -->
+    <div id="cam-preview-box" class="cam-stage" style="display:none;">
+      <div class="cam-preview-wrap">
+        <img id="cam-preview-img" alt="Captured photo" />
+      </div>
+      <div class="cam-actions-row">
+        <button type="button" id="cam-retake" class="cam-btn-action cam-btn-retake">
+          <span>↩</span> Retake
+        </button>
+        <button type="button" id="cam-use" class="cam-btn-action cam-btn-use">
+          <span>✓</span> Use This Photo
+        </button>
       </div>
     </div>
 
   </div>
 </div>`);
 
-    /* ── Refs ─────────────────────────────────────────────────────── */
-    const modal    = document.getElementById("cam-modal");
-    const backdrop = document.getElementById("cam-bd");
-    const liveView = document.getElementById("cam-live");
-    const prevView = document.getElementById("cam-prev");
-    const video    = document.getElementById("cam-vid");
-    const flash    = document.getElementById("cam-flash");
-    const snapBtn  = document.getElementById("cam-snap");
-    const flipBtn  = document.getElementById("cam-flip");
-    const closeBtn = document.getElementById("cam-x");
-    const prevImg  = document.getElementById("cam-img");
-    const retakeBtn= document.getElementById("cam-retake");
-    const useBtn   = document.getElementById("cam-use");
-    const lbl      = document.getElementById("cam-lbl");
+    /* ── Elements ─────────────────────────────────────────────────── */
+    const modal       = document.getElementById("cam-modal");
+    const backdrop    = document.getElementById("cam-bd");
+    const closeBtn    = document.getElementById("cam-close");
+    const heading     = document.getElementById("cam-heading");
+    const liveBox     = document.getElementById("cam-live-box");
+    const previewBox  = document.getElementById("cam-preview-box");
+    const video       = document.getElementById("cam-vid");
+    const flash       = document.getElementById("cam-flash");
+    const flipBtn     = document.getElementById("cam-flip");
+    const snapBtn     = document.getElementById("cam-snap");
+    const previewImg  = document.getElementById("cam-preview-img");
+    const retakeBtn   = document.getElementById("cam-retake");
+    const useBtn      = document.getElementById("cam-use");
 
-    let stream = null, blob = null, targetDrop = null;
-    let facing = "environment", busy = false;
+    let stream = null;
+    let currentBlob = null;
+    let targetDrop = null;
+    let facingMode = "environment";
+    let isProcessing = false;
 
-    /* ── Trigger buttons — injected INTO each drop zone ──────────── */
+    /* ── Inject "Take Photo" button into every .drop box ─────────── */
     document.querySelectorAll(".drop").forEach(drop => {
       const inp = drop.querySelector("input[type=file]");
       if (!inp) return;
 
-      const btn = document.createElement("button");
-      btn.type = "button";
-      btn.className = "cam-open-btn";
-      btn.setAttribute("aria-label", "Use camera");
-      btn.innerHTML = `<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>Use Camera`;
-      btn.onclick = e => { e.preventDefault(); targetDrop = drop; open(); };
+      const triggerBtn = document.createElement("button");
+      triggerBtn.type = "button";
+      triggerBtn.className = "cam-drop-trigger";
+      triggerBtn.innerHTML = `
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/>
+          <circle cx="12" cy="13" r="4"/>
+        </svg>
+        <span>Open Camera</span>
+      `;
 
-      /* Place inside the drop-content div so it sits under the label text */
-      const content = drop.querySelector(".drop-content");
-      if (content) content.appendChild(btn);
-      else drop.appendChild(btn);
+      triggerBtn.addEventListener("click", e => {
+        e.preventDefault();
+        e.stopPropagation(); // prevent opening file browser
+        targetDrop = drop;
+        openModal();
+      });
+
+      const content = drop.querySelector(".drop-content") || drop;
+      content.appendChild(triggerBtn);
     });
 
-    /* ── Open / close ─────────────────────────────────────────────── */
-    async function open() {
-      showLive();
-      modal.classList.add("open");
+    /* ── Modal Show / Hide ────────────────────────────────────────── */
+    async function openModal() {
+      currentBlob = null;
+      isProcessing = false;
+      snapBtn.disabled = false;
+
+      // Ensure live camera is shown, preview is hidden
+      liveBox.style.display = "flex";
+      previewBox.style.display = "none";
+      heading.textContent = "Take Photo";
+
+      modal.classList.add("active");
       document.body.style.overflow = "hidden";
-      await startStream();
+      await startCamera();
     }
 
-    function close() {
-      stopStream();
-      modal.classList.remove("open");
+    function closeModal() {
+      stopCamera();
+      modal.classList.remove("active");
       document.body.style.overflow = "";
-      blob = null; busy = false;
+      currentBlob = null;
+      isProcessing = false;
     }
 
-    closeBtn.onclick = close;
-    backdrop.onclick = close;
+    closeBtn.addEventListener("click", closeModal);
+    backdrop.addEventListener("click", closeModal);
     document.addEventListener("keydown", e => {
-      if (e.key === "Escape" && modal.classList.contains("open")) close();
+      if (e.key === "Escape" && modal.classList.contains("active")) {
+        closeModal();
+      }
     });
 
-    /* ── Stream ───────────────────────────────────────────────────── */
-    async function startStream() {
-      stopStream();
+    /* ── Camera Stream ────────────────────────────────────────────── */
+    async function startCamera() {
+      stopCamera();
       try {
         stream = await navigator.mediaDevices.getUserMedia({
-          video: { facingMode: facing, width: { ideal: 1920 }, height: { ideal: 1080 } },
+          video: {
+            facingMode: facingMode,
+            width: { ideal: 1920 },
+            height: { ideal: 1080 }
+          },
           audio: false
         });
         video.srcObject = stream;
         await video.play();
+
+        // Check if multiple camera inputs exist to show flip button
+        const devices = await navigator.mediaDevices.enumerateDevices();
+        const videoInputs = devices.filter(d => d.kind === "videoinput");
+        flipBtn.style.visibility = videoInputs.length > 1 ? "visible" : "hidden";
       } catch (err) {
-        const msg = err.name === "NotAllowedError" ? "Camera permission denied"
-                  : err.name === "NotFoundError"   ? "No camera detected"
-                  : "Cannot access camera";
-        document.getElementById("cam-hint").textContent = "⚠ " + msg;
+        console.warn("Camera access failed:", err);
+        const vf = document.querySelector(".cam-viewfinder");
+        const msg = err.name === "NotAllowedError" ? "Camera permission blocked" : "Unable to access camera";
+        vf.insertAdjacentHTML("beforeend", `<div class="cam-error-overlay">⚠️ ${msg}</div>`);
       }
     }
 
-    function stopStream() {
-      if (stream) { stream.getTracks().forEach(t => t.stop()); stream = null; }
+    function stopCamera() {
+      if (stream) {
+        stream.getTracks().forEach(t => t.stop());
+        stream = null;
+      }
       video.srcObject = null;
+      const errOverlay = document.querySelector(".cam-error-overlay");
+      if (errOverlay) errOverlay.remove();
     }
 
-    /* ── Flip ─────────────────────────────────────────────────────── */
-    flipBtn.onclick = () => { facing = facing === "environment" ? "user" : "environment"; startStream(); };
+    /* ── Flip Camera ──────────────────────────────────────────────── */
+    flipBtn.addEventListener("click", () => {
+      facingMode = facingMode === "environment" ? "user" : "environment";
+      startCamera();
+    });
 
-    /* ── Snap — instant, no countdown ────────────────────────────── */
-    snapBtn.onclick = async () => {
-      if (busy) return;
-      busy = true;
+    /* ── Instant Snap ─────────────────────────────────────────────── */
+    snapBtn.addEventListener("click", async () => {
+      if (isProcessing) return;
+      isProcessing = true;
       snapBtn.disabled = true;
 
-      /* Flash */
-      flash.classList.add("on");
-      await tick(80);
-      flash.classList.remove("on");
+      // 1. Shutter flash effect
+      flash.classList.add("fired");
+      await new Promise(r => setTimeout(r, 70));
 
-      /* Capture frame */
-      const c = document.createElement("canvas");
-      c.width  = video.videoWidth  || 1280;
-      c.height = video.videoHeight || 720;
-      c.getContext("2d").drawImage(video, 0, 0);
+      // 2. Render frame to offscreen canvas
+      const canvas = document.createElement("canvas");
+      canvas.width = video.videoWidth || 1280;
+      canvas.height = video.videoHeight || 720;
+      const ctx = canvas.getContext("2d");
+      ctx.drawImage(video, 0, 0);
 
-      c.toBlob(b => {
-        blob = b;
-        prevImg.src = URL.createObjectURL(b);
-        stopStream();          // kill camera IMMEDIATELY
-        showPreview();
+      canvas.toBlob(blob => {
+        currentBlob = blob;
+        previewImg.src = URL.createObjectURL(blob);
+
+        // 3. Immediately shut down camera stream & disappear live view
+        stopCamera();
+        flash.classList.remove("fired");
+        liveBox.style.display = "none";
+
+        // 4. Show preview with 2 prominent theme buttons
+        heading.textContent = "Review Photo";
+        previewBox.style.display = "flex";
+
+        isProcessing = false;
         snapBtn.disabled = false;
-        busy = false;
-      }, "image/jpeg", 0.93);
-    };
+      }, "image/jpeg", 0.94);
+    });
 
-    /* ── Preview actions ─────────────────────────────────────────── */
-    retakeBtn.onclick = async () => {
-      blob = null; prevImg.src = "";
-      showLive();
-      await startStream();
-    };
+    /* ── Preview Buttons ─────────────────────────────────────────── */
+    retakeBtn.addEventListener("click", async () => {
+      currentBlob = null;
+      previewImg.src = "";
+      previewBox.style.display = "none";
+      liveBox.style.display = "flex";
+      heading.textContent = "Take Photo";
+      await startCamera();
+    });
 
-    useBtn.onclick = () => {
-      if (!blob || !targetDrop) { close(); return; }
+    useBtn.addEventListener("click", () => {
+      if (!currentBlob || !targetDrop) {
+        closeModal();
+        return;
+      }
 
-      const inp  = targetDrop.querySelector("input[type=file]");
-      const ts   = new Date().toISOString().slice(0,19).replace(/[:T]/g,"-");
-      const name = `cam-${inp ? inp.name : "photo"}-${ts}.jpg`;
-      const file = new File([blob], name, { type: "image/jpeg" });
+      const inp = targetDrop.querySelector("input[type=file]");
+      const ts = new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-");
+      const fileName = `snap-${inp ? inp.name : "photo"}-${ts}.jpg`;
+      const file = new File([currentBlob], fileName, { type: "image/jpeg" });
 
-      /* Fire custom event — tool.js listener will inject into drop */
       targetDrop.dispatchEvent(new CustomEvent("camera:captured", {
-        bubbles: true, detail: { file, dropEl: targetDrop }
+        bubbles: true,
+        detail: { file, dropEl: targetDrop }
       }));
-      close();
-    };
 
-    /* ── View switchers ───────────────────────────────────────────── */
-    function showLive() {
-      liveView.hidden = false;
-      prevView.hidden = true;
-      lbl.textContent = "📷 Camera";
-    }
-    function showPreview() {
-      liveView.hidden = true;
-      prevView.hidden = false;
-      lbl.textContent = "📸 Review photo";
-    }
+      closeModal();
+    });
 
-    /* ── Event: inject captured file into drop zone ──────────────── */
+    /* ── Update files in tool.js store ────────────────────────────── */
     document.addEventListener("camera:captured", e => {
       const { file, dropEl } = e.detail;
-      const inp     = dropEl.querySelector("input[type=file]");
-      const span    = dropEl.querySelector("span");
+      const inp = dropEl.querySelector("input[type=file]");
+      const span = dropEl.querySelector("span");
       const preview = dropEl.querySelector(".drop-preview");
       if (!inp) return;
 
@@ -221,6 +277,5 @@
       if (inp.name === "reference") window._sigRefURL = url;
     });
 
-    function tick(ms) { return new Promise(r => setTimeout(r, ms)); }
   });
 })();

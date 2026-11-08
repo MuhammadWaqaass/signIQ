@@ -1,273 +1,384 @@
 /* ══════════════════════════════════════════════════════════════════
-   camera.css — redesigned, theme-native, no fluff
+   camera.css — Compact, neo-brutalist theme camera for SignIQ
    ══════════════════════════════════════════════════════════════════ */
 
-/* ── Trigger button — lives INSIDE each drop zone ───────────────── */
-.cam-open-btn {
+/* ── Camera button inside upload drop box ───────────────────────── */
+.cam-drop-trigger {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: 7px;
   margin-top: 10px;
-  padding: 7px 16px 7px 13px;
-  background: var(--ink);
-  color: var(--cream);
-  font: 700 11.5px "Bricolage Grotesque", sans-serif;
-  letter-spacing: .06em;
-  text-transform: uppercase;
-  border: 2px solid var(--ink);
+  padding: 6px 14px;
+  background: var(--ink, #16130f);
+  color: var(--cream, #f1ebe0);
+  border: 2px solid var(--ink, #16130f);
   border-radius: 999px;
-  box-shadow: 3px 3px 0 rgba(22,19,15,.18);
+  font-family: "Bricolage Grotesque", sans-serif;
+  font-weight: 700;
+  font-size: 11.5px;
+  letter-spacing: .04em;
+  text-transform: uppercase;
   cursor: pointer;
-  transition: transform .12s, box-shadow .12s, background .12s;
-}
-.cam-open-btn svg { flex-shrink: 0; }
-.cam-open-btn:hover {
-  background: #2d2820;
-  transform: translate(2px, 2px);
-  box-shadow: 1px 1px 0 rgba(22,19,15,.18);
-}
-/* Hide the trigger when the drop zone already has a file */
-.drop.has .cam-open-btn { display: none; }
-
-/* ── Overlay ─────────────────────────────────────────────────────── */
-#cam-modal {
-  position: fixed; inset: 0; z-index: 1000;
-  display: none; align-items: center; justify-content: center;
-}
-#cam-modal.open { display: flex; }
-
-#cam-bd {
-  position: absolute; inset: 0;
-  background: rgba(16,13,10,.88);
-  backdrop-filter: blur(8px);
+  box-shadow: 2px 2px 0 rgba(22, 19, 15, 0.25);
+  transition: transform .12s, box-shadow .12s, background .15s;
 }
 
-/* ── Shell ───────────────────────────────────────────────────────── */
-#cam-shell {
-  position: relative; z-index: 1;
-  width: min(560px, 97vw);
-  border-radius: 22px;
-  overflow: hidden;
-  box-shadow: 0 32px 80px rgba(0,0,0,.55), 0 0 0 2px rgba(255,255,255,.08);
-  animation: cam-enter .2s cubic-bezier(.2,.8,.2,1) both;
-}
-@keyframes cam-enter {
-  from { opacity:0; transform: scale(.93) translateY(16px); }
-  to   { opacity:1; transform: none; }
+.cam-drop-trigger:hover {
+  background: #2a2520;
+  color: #fff;
+  transform: translate(1.5px, 1.5px);
+  box-shadow: 1px 1px 0 rgba(22, 19, 15, 0.25);
 }
 
-/* ══════════════════════════════════════════════════════════════════
-   LIVE VIEW
-   ══════════════════════════════════════════════════════════════════ */
-#cam-live {
+.cam-drop-trigger svg {
+  flex-shrink: 0;
+}
+
+/* Hide trigger if an image is already selected/captured */
+.drop.has .cam-drop-trigger {
+  display: none !important;
+}
+
+/* ── Modal Backdrop & Layout ─────────────────────────────────────── */
+.cam-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+}
+
+.cam-modal.active {
+  display: flex;
+}
+
+.cam-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(22, 19, 15, 0.78);
+  backdrop-filter: blur(5px);
+}
+
+/* ── Compact Modal Card (Neobrutalist SignIQ Style) ──────────────── */
+.cam-card {
   position: relative;
-  background: #000;
-  /* 4:3 viewfinder */
-  aspect-ratio: 4 / 3;
+  z-index: 10;
+  width: 100%;
+  max-width: 440px; /* Compact & proportional */
+  background: var(--cream, #f1ebe0);
+  border: 3px solid var(--ink, #16130f);
+  border-radius: 20px;
+  box-shadow: 7px 7px 0 var(--ink, #16130f);
+  overflow: hidden;
+  animation: camPop .18s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+@keyframes camPop {
+  0% { transform: scale(0.92) translateY(14px); opacity: 0; }
+  100% { transform: scale(1) translateY(0); opacity: 1; }
+}
+
+/* ── Modal Header ────────────────────────────────────────────────── */
+.cam-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 18px;
+  background: #fff;
+  border-bottom: 2.5px solid var(--ink, #16130f);
+}
+
+.cam-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-family: "Bricolage Grotesque", sans-serif;
+  font-weight: 800;
+  font-size: 15px;
+  color: var(--ink, #16130f);
+  letter-spacing: -0.02em;
+}
+
+.cam-title-icon {
+  font-size: 16px;
+}
+
+.cam-btn-close {
+  width: 28px;
+  height: 28px;
+  background: var(--cream, #f1ebe0);
+  border: 2px solid var(--ink, #16130f);
+  border-radius: 50%;
+  color: var(--ink, #16130f);
+  font-family: "Bricolage Grotesque", sans-serif;
+  font-weight: 800;
+  font-size: 13px;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  box-shadow: 2px 2px 0 var(--ink, #16130f);
+  transition: .12s;
+}
+
+.cam-btn-close:hover {
+  background: #d63031;
+  color: #fff;
+  transform: translate(1px, 1px);
+  box-shadow: 1px 1px 0 var(--ink, #16130f);
+}
+
+/* ── Content Stage ───────────────────────────────────────────────── */
+.cam-stage {
+  padding: 14px 16px 18px;
   display: flex;
   flex-direction: column;
+  align-items: center;
 }
 
-/* Video fills everything */
+/* ── Viewfinder (Live Camera) ────────────────────────────────────── */
+.cam-viewfinder {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  max-height: 280px;
+  background: #111;
+  border: 2.5px solid var(--ink, #16130f);
+  border-radius: 14px;
+  overflow: hidden;
+  box-shadow: 3px 3px 0 var(--ink, #16130f);
+}
+
 #cam-vid {
-  position: absolute; inset: 0;
-  width: 100%; height: 100%;
+  width: 100%;
+  height: 100%;
   object-fit: cover;
   display: block;
 }
 
-/* ── Top bar (floats over video) ─────────────────────────────────── */
-#cam-top {
-  position: absolute; top: 0; left: 0; right: 0;
-  display: flex; align-items: center; justify-content: space-between;
-  padding: 14px 16px;
-  background: linear-gradient(to bottom, rgba(0,0,0,.55) 0%, transparent 100%);
-  z-index: 3;
-}
-.cmono {
-  font: 700 10.5px "JetBrains Mono", monospace;
-  letter-spacing: .18em;
-  text-transform: uppercase;
-  color: rgba(255,255,255,.8);
-}
-#cam-x {
-  width: 30px; height: 30px;
-  background: rgba(255,255,255,.12);
-  color: #fff;
-  border: 1.5px solid rgba(255,255,255,.2);
-  border-radius: 50%;
-  font: 700 14px "Bricolage Grotesque";
-  cursor: pointer;
-  display: grid; place-items: center;
-  transition: background .15s;
-}
-#cam-x:hover { background: #d63031; border-color: #d63031; }
-
-/* ── Bottom bar (floats over video) ─────────────────────────────── */
-#cam-bar {
-  position: absolute; bottom: 0; left: 0; right: 0;
-  display: flex; align-items: center; justify-content: space-between;
-  padding: 18px 24px 20px;
-  background: linear-gradient(to top, rgba(0,0,0,.65) 0%, transparent 100%);
-  z-index: 3;
-}
-
-/* Flip button */
-#cam-flip {
-  width: 44px; height: 44px;
-  border-radius: 50%;
-  background: rgba(255,255,255,.14);
-  color: #fff;
-  border: 1.5px solid rgba(255,255,255,.22);
-  cursor: pointer;
-  display: grid; place-items: center;
-  transition: background .14s, transform .14s;
-}
-#cam-flip:hover { background: rgba(255,255,255,.24); transform: scale(1.07); }
-
-/* Shutter button */
-#cam-snap {
-  width: 72px; height: 72px;
-  border-radius: 50%;
-  background: transparent;
-  border: 4px solid #fff;
-  cursor: pointer;
-  display: grid; place-items: center;
-  transition: transform .12s;
-  box-shadow: 0 0 0 0 rgba(232,99,26,0);
-  animation: snap-pulse 2.6s ease-in-out infinite;
-}
-@keyframes snap-pulse {
-  0%, 100% { box-shadow: 0 0 0 0 rgba(232,99,26,.0); }
-  50%       { box-shadow: 0 0 0 7px rgba(232,99,26,.35); }
-}
-#cam-snap:hover  { transform: scale(1.06); }
-#cam-snap:active { transform: scale(.93);  }
-#cam-snap:disabled { opacity: .4; cursor: default; animation: none; }
-
-#cam-ring {
-  display: block;
-  width: 54px; height: 54px;
-  border-radius: 50%;
-  background: #fff;
-  transition: transform .1s;
-}
-#cam-snap:active #cam-ring { transform: scale(.8); }
-
-/* ── Hint (between bar and bottom edge) ─────────────────────────── */
-#cam-hint {
-  position: absolute; bottom: 76px; left: 0; right: 0;
-  text-align: center;
-  color: rgba(255,255,255,.45);
-  font-size: 10px;
-  letter-spacing: .08em;
-  z-index: 3;
+/* Corner framing brackets */
+.cam-brackets {
+  position: absolute;
+  inset: 12px;
   pointer-events: none;
 }
 
-/* ── Corner guide brackets ───────────────────────────────────────── */
-#cam-corners {
-  position: absolute; inset: 14px;
-  pointer-events: none; z-index: 2;
-}
-.cc {
+.cam-brackets span {
   position: absolute;
-  width: 22px; height: 22px;
+  width: 18px;
+  height: 18px;
   border: 3px solid var(--org, #e8631a);
-  opacity: .9;
 }
-.cc.tl { top:0; left:0;  border-right:none; border-bottom:none; border-radius: 3px 0 0 0; }
-.cc.tr { top:0; right:0; border-left:none;  border-bottom:none; border-radius: 0 3px 0 0; }
-.cc.bl { bottom:0; left:0;  border-right:none; border-top:none; border-radius: 0 0 0 3px; }
-.cc.br { bottom:0; right:0; border-left:none;  border-top:none; border-radius: 0 0 3px 0; }
 
-/* ── Flash overlay ───────────────────────────────────────────────── */
-#cam-flash {
-  position: absolute; inset: 0; z-index: 10;
+.b-tl { top: 0; left: 0; border-right: none; border-bottom: none; border-radius: 4px 0 0 0; }
+.b-tr { top: 0; right: 0; border-left: none; border-bottom: none; border-radius: 0 4px 0 0; }
+.b-bl { bottom: 0; left: 0; border-right: none; border-top: none; border-radius: 0 0 0 4px; }
+.b-br { bottom: 0; right: 0; border-left: none; border-top: none; border-radius: 0 0 4px 0; }
+
+/* Camera Flash */
+.cam-flash {
+  position: absolute;
+  inset: 0;
   background: #fff;
-  opacity: 0; pointer-events: none;
-  transition: opacity .06s;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity .05s ease-out;
 }
-#cam-flash.on { opacity: 1; transition: opacity .28s; }
+.cam-flash.fired {
+  opacity: 0.95;
+}
 
-/* ══════════════════════════════════════════════════════════════════
-   PREVIEW VIEW  — camera gone, photo fills same frame
-   ══════════════════════════════════════════════════════════════════ */
-#cam-prev {
+/* Error message inside viewfinder */
+.cam-error-overlay {
+  position: absolute;
+  inset: 0;
+  background: rgba(22, 19, 15, 0.92);
+  color: #fff;
+  font-family: "Inter", sans-serif;
+  font-size: 13px;
+  font-weight: 600;
+  display: grid;
+  place-items: center;
+  text-align: center;
+  padding: 18px;
+  z-index: 5;
+}
+
+/* Tip text */
+.cam-tip {
+  margin-top: 10px;
+  font-family: "JetBrains Mono", monospace;
+  font-size: 11px;
+  font-weight: 600;
+  color: #666;
+  text-transform: uppercase;
+  letter-spacing: .05em;
+  text-align: center;
+}
+
+/* ── Live Controls Row ───────────────────────────────────────────── */
+.cam-controls {
+  margin-top: 14px;
   display: flex;
-  flex-direction: column;
-  background: #0d0d0d;
-}
-
-/* Photo — same 4:3 ratio as the viewfinder */
-#cam-img {
+  align-items: center;
+  justify-content: space-between;
   width: 100%;
-  aspect-ratio: 4 / 3;
-  object-fit: contain;
-  background: #000;
-  display: block;
+  padding: 0 10px;
 }
 
-/* ── Action strip ────────────────────────────────────────────────── */
-#cam-prev-actions {
-  display: flex;
-  gap: 12px;
-  padding: 16px 20px 20px;
-  background: #131313;
-  border-top: 1px solid rgba(255,255,255,.07);
+.cam-control-spacer {
+  width: 40px;
 }
 
-/* Retake — ghost */
-#cam-retake {
-  flex: 1;
-  padding: 13px 10px;
-  background: transparent;
-  color: rgba(255,255,255,.75);
-  border: 2px solid rgba(255,255,255,.18);
-  border-radius: 999px;
-  font: 700 13px "Bricolage Grotesque", sans-serif;
-  letter-spacing: .04em;
-  cursor: pointer;
-  transition: background .14s, color .14s, border-color .14s;
-}
-#cam-retake:hover {
-  background: rgba(255,255,255,.08);
-  color: #fff;
-  border-color: rgba(255,255,255,.35);
-}
-
-/* Use This — full orange theme button (matches site .btn) */
-#cam-use {
-  flex: 2;
-  padding: 13px 10px;
-  background: var(--org, #e8631a);
-  color: #fff;
+.cam-btn-flip {
+  width: 40px;
+  height: 40px;
+  background: #fff;
   border: 2px solid var(--ink, #16130f);
-  border-radius: 999px;
-  font: 700 14px "Bricolage Grotesque", sans-serif;
-  letter-spacing: .04em;
+  border-radius: 50%;
+  color: var(--ink, #16130f);
   cursor: pointer;
+  display: grid;
+  place-items: center;
+  box-shadow: 2px 2px 0 var(--ink, #16130f);
+  transition: .12s;
+}
+
+.cam-btn-flip:hover {
+  background: var(--cream, #f1ebe0);
+  transform: translate(1px, 1px);
+  box-shadow: 1px 1px 0 var(--ink, #16130f);
+}
+
+/* Shutter button */
+.cam-btn-shutter {
+  width: 62px;
+  height: 62px;
+  border-radius: 50%;
+  background: var(--org, #e8631a);
+  border: 3.5px solid var(--ink, #16130f);
   box-shadow: 3px 3px 0 var(--ink, #16130f);
+  cursor: pointer;
+  display: grid;
+  place-items: center;
   transition: transform .12s, box-shadow .12s;
 }
-#cam-use:hover {
+
+.cam-btn-shutter:hover {
+  transform: scale(1.04);
+}
+
+.cam-btn-shutter:active {
   transform: translate(2px, 2px);
   box-shadow: 1px 1px 0 var(--ink, #16130f);
 }
-#cam-use:active { transform: translate(3px,3px); box-shadow: none; }
 
-/* ── Mobile: bottom-sheet style ──────────────────────────────────── */
-@media (max-width: 540px) {
-  #cam-modal  { align-items: flex-end; }
-  #cam-shell  { width: 100vw; border-radius: 18px 18px 0 0; }
-  #cam-snap   { width: 64px; height: 64px; }
-  #cam-ring   { width: 48px; height: 48px; }
-  #cam-prev-actions { padding-bottom: max(20px, env(safe-area-inset-bottom)); }
+.cam-btn-shutter:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
-/* Respect reduced-motion */
-@media (prefers-reduced-motion: reduce) {
-  #cam-shell      { animation: none; }
-  #cam-snap       { animation: none; }
-  #cam-flash      { transition: none; }
+.shutter-core {
+  width: 42px;
+  height: 42px;
+  border-radius: 50%;
+  background: #fff;
+  display: block;
+}
+
+/* ══════════════════════════════════════════════════════════════════
+   PREVIEW STAGE (Camera gone, only captured image + 2 buttons)
+   ══════════════════════════════════════════════════════════════════ */
+.cam-preview-wrap {
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  max-height: 280px;
+  background: #000;
+  border: 2.5px solid var(--ink, #16130f);
+  border-radius: 14px;
+  overflow: hidden;
+  box-shadow: 3px 3px 0 var(--ink, #16130f);
+}
+
+#cam-preview-img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  display: block;
+}
+
+/* ── 2 Prominent Theme Buttons (Black + Orange) ──────────────────── */
+.cam-actions-row {
+  display: flex;
+  gap: 12px;
+  width: 100%;
+  margin-top: 16px;
+}
+
+.cam-btn-action {
+  flex: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 12px 14px;
+  border: 2.5px solid var(--ink, #16130f);
+  border-radius: 999px;
+  font-family: "Bricolage Grotesque", sans-serif;
+  font-weight: 800;
+  font-size: 13.5px;
+  letter-spacing: .02em;
+  cursor: pointer;
+  box-shadow: 3px 3px 0 var(--ink, #16130f);
+  transition: transform .12s, box-shadow .12s;
+  text-transform: uppercase;
+}
+
+/* Retake button: Dark / Black theme */
+.cam-btn-retake {
+  background: var(--ink, #16130f);
+  color: var(--cream, #f1ebe0);
+}
+
+.cam-btn-retake:hover {
+  background: #2b2520;
+  color: #fff;
+  transform: translate(2px, 2px);
+  box-shadow: 1px 1px 0 var(--ink, #16130f);
+}
+
+/* Use This Photo button: Signature Orange theme */
+.cam-btn-use {
+  background: var(--org, #e8631a);
+  color: #fff;
+}
+
+.cam-btn-use:hover {
+  background: #f07026;
+  transform: translate(2px, 2px);
+  box-shadow: 1px 1px 0 var(--ink, #16130f);
+}
+
+.cam-btn-action:active {
+  transform: translate(3px, 3px);
+  box-shadow: none;
+}
+
+/* ── Mobile responsiveness ───────────────────────────────────────── */
+@media (max-width: 480px) {
+  .cam-card {
+    max-width: 100%;
+    border-radius: 16px;
+  }
+  .cam-stage {
+    padding: 12px 12px 16px;
+  }
+  .cam-actions-row {
+    flex-direction: column;
+    gap: 10px;
+  }
+  .cam-btn-action {
+    width: 100%;
+  }
 }
