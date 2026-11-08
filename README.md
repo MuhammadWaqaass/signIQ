@@ -24,6 +24,7 @@
 ---
 
 </div>
+<img width="712" height="439" alt="image" src="https://github.com/user-attachments/assets/a05aea94-8237-402f-b517-c28fba9803a6" />
 
 ## 🌟 Key Features
 
@@ -57,6 +58,7 @@
   - Seamlessly upgrades to cloud-native **Supabase PostgreSQL** via SQLAlchemy.
 
 ---
+<img width="597" height="315" alt="image" src="https://github.com/user-attachments/assets/df2dc813-3113-406d-8b9d-75db8195fa2b" />
 
 ## 🏗️ System Architecture
 
@@ -144,6 +146,7 @@ signIQ/
 ├── requirements.txt         # Pinned Python package dependencies
 └── README.md                # Project documentation
 ```
+<img width="573" height="309" alt="image" src="https://github.com/user-attachments/assets/d34e5272-bd92-4565-bb2e-d464bc8986d8" />
 
 ---
 
