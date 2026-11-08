@@ -1,164 +1,136 @@
 /**
  * camera.js — Live camera capture for SignIQ
- *
- * Adds a 📷 button under every .drop zone.
- * On click → opens fullscreen modal → live preview → countdown → snap
- * → shows preview → "Use This" injects blob as a File into the existing
- *   files{} store and drop UI, exactly as if the user had picked a file.
- *
- * Zero backend changes needed — the captured frame becomes a JPEG File
- * and flows through the same FormData → /jobs → Celery pipeline.
+ * Snap → flash → preview immediately (no countdown).
+ * "Use This" injects JPEG blob into the existing drop zone / files{} pipeline.
  */
-
 (function () {
-  /* ── Wait for DOM ──────────────────────────────────────────────── */
   document.addEventListener("DOMContentLoaded", () => {
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) return;
 
-    /* ── Inject modal HTML once ───────────────────────────────────── */
-    const tpl = document.createElement("div");
-    tpl.innerHTML = `
+    /* ── Build modal once ─────────────────────────────────────────── */
+    document.body.insertAdjacentHTML("beforeend", `
 <div id="cam-modal" role="dialog" aria-modal="true" aria-label="Camera capture">
-  <div id="cam-backdrop"></div>
+  <div id="cam-bd"></div>
   <div id="cam-shell">
 
-    <div id="cam-header">
-      <span id="cam-label" class="cam-mono">📷 LIVE CAMERA</span>
-      <button id="cam-close" aria-label="Close camera" title="Close">✕</button>
+    <!-- ① LIVE VIEW (shown first) -->
+    <div id="cam-live">
+      <video id="cam-vid" autoplay playsinline muted></video>
+
+      <!-- corner guide brackets -->
+      <div id="cam-corners">
+        <i class="cc tl"></i><i class="cc tr"></i>
+        <i class="cc bl"></i><i class="cc br"></i>
+      </div>
+
+      <!-- white flash overlay -->
+      <div id="cam-flash"></div>
+
+      <!-- top bar: label + close -->
+      <div id="cam-top">
+        <span id="cam-lbl" class="cmono">📷 Camera</span>
+        <button id="cam-x" aria-label="Close">✕</button>
+      </div>
+
+      <!-- bottom bar: flip + shutter + spacer -->
+      <div id="cam-bar">
+        <button id="cam-flip" aria-label="Flip camera" title="Switch camera">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 4v6h6"/><path d="M23 20v-6h-6"/><path d="M20.49 9A9 9 0 0 0 5.64 5.64L1 10m22 4-4.64 4.36A9 9 0 0 1 3.51 15"/></svg>
+        </button>
+        <button id="cam-snap" aria-label="Take photo">
+          <span id="cam-ring"></span>
+        </button>
+        <div style="width:48px"></div>
+      </div>
+
+      <!-- hint -->
+      <div id="cam-hint" class="cmono">Keep document flat &amp; in frame</div>
     </div>
 
-    <div id="cam-body">
-
-      <!-- Live feed view -->
-      <div id="cam-live-view">
-        <div id="cam-viewfinder">
-          <video id="cam-video" autoplay playsinline muted></video>
-          <div id="cam-corners">
-            <span class="cc tl"></span><span class="cc tr"></span>
-            <span class="cc bl"></span><span class="cc br"></span>
-          </div>
-          <div id="cam-flash"></div>
-          <div id="cam-countdown"></div>
-        </div>
-
-        <div id="cam-hint" class="cam-mono">Position document flat · Keep all edges in frame</div>
-
-        <div id="cam-controls">
-          <button id="cam-flip" title="Flip camera" aria-label="Switch camera">⇄</button>
-          <button id="cam-snap" aria-label="Capture">
-            <span id="cam-shutter-ring"></span>
-          </button>
-          <div id="cam-spacer"></div><!-- balances flip btn -->
-        </div>
+    <!-- ② PREVIEW VIEW (hidden until snap) -->
+    <div id="cam-prev" hidden>
+      <img id="cam-img" alt="Captured photo">
+      <div id="cam-prev-actions">
+        <button id="cam-retake">↩ Retake</button>
+        <button id="cam-use">✓ Use This Photo</button>
       </div>
+    </div>
 
-      <!-- Preview view -->
-      <div id="cam-preview-view" hidden>
-        <img id="cam-preview-img" alt="Captured image">
-        <div id="cam-preview-label" class="cam-mono">Review your capture</div>
-        <div id="cam-preview-actions">
-          <button id="cam-retake" class="cam-btn cam-btn-sec">↩ Retake</button>
-          <button id="cam-use"    class="cam-btn cam-btn-pri">✓ Use This</button>
-        </div>
-      </div>
+  </div>
+</div>`);
 
-    </div><!-- /cam-body -->
-  </div><!-- /cam-shell -->
-</div><!-- /cam-modal -->`;
-    document.body.appendChild(tpl.firstElementChild);
+    /* ── Refs ─────────────────────────────────────────────────────── */
+    const modal    = document.getElementById("cam-modal");
+    const backdrop = document.getElementById("cam-bd");
+    const liveView = document.getElementById("cam-live");
+    const prevView = document.getElementById("cam-prev");
+    const video    = document.getElementById("cam-vid");
+    const flash    = document.getElementById("cam-flash");
+    const snapBtn  = document.getElementById("cam-snap");
+    const flipBtn  = document.getElementById("cam-flip");
+    const closeBtn = document.getElementById("cam-x");
+    const prevImg  = document.getElementById("cam-img");
+    const retakeBtn= document.getElementById("cam-retake");
+    const useBtn   = document.getElementById("cam-use");
+    const lbl      = document.getElementById("cam-lbl");
 
-    /* ── State ────────────────────────────────────────────────────── */
-    const modal      = document.getElementById("cam-modal");
-    const video      = document.getElementById("cam-video");
-    const flash      = document.getElementById("cam-flash");
-    const countdown  = document.getElementById("cam-countdown");
-    const liveView   = document.getElementById("cam-live-view");
-    const previewView= document.getElementById("cam-preview-view");
-    const previewImg = document.getElementById("cam-preview-img");
-    const snapBtn    = document.getElementById("cam-snap");
-    const flipBtn    = document.getElementById("cam-flip");
-    const retakeBtn  = document.getElementById("cam-retake");
-    const useBtn     = document.getElementById("cam-use");
-    const closeBtn   = document.getElementById("cam-close");
-    const backdrop   = document.getElementById("cam-backdrop");
-    const camLabel   = document.getElementById("cam-label");
+    let stream = null, blob = null, targetDrop = null;
+    let facing = "environment", busy = false;
 
-    let stream       = null;
-    let capturedBlob = null;
-    let targetDrop   = null;   // which .drop zone triggered open
-    let facingMode   = "environment"; // prefer rear camera
-    let isShooting   = false;
-
-    /* ── Add 📷 trigger buttons under each .drop ─────────────────── */
+    /* ── Trigger buttons — injected INTO each drop zone ──────────── */
     document.querySelectorAll(".drop").forEach(drop => {
       const inp = drop.querySelector("input[type=file]");
       if (!inp) return;
 
-      const wrapper = document.createElement("div");
-      wrapper.className = "cam-trigger-wrap";
-
       const btn = document.createElement("button");
       btn.type = "button";
-      btn.className = "cam-trigger";
-      btn.innerHTML = `<span class="cam-trigger-icon">📷</span><span>Use Camera</span>`;
-      btn.title = "Capture with camera";
+      btn.className = "cam-open-btn";
+      btn.setAttribute("aria-label", "Use camera");
+      btn.innerHTML = `<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>Use Camera`;
+      btn.onclick = e => { e.preventDefault(); targetDrop = drop; open(); };
 
-      btn.addEventListener("click", e => {
-        e.preventDefault();
-        targetDrop = drop;
-        openCamera();
-      });
-
-      wrapper.appendChild(btn);
-      // Insert below the drop label
-      drop.insertAdjacentElement("afterend", wrapper);
+      /* Place inside the drop-content div so it sits under the label text */
+      const content = drop.querySelector(".drop-content");
+      if (content) content.appendChild(btn);
+      else drop.appendChild(btn);
     });
 
     /* ── Open / close ─────────────────────────────────────────────── */
-    async function openCamera() {
+    async function open() {
       showLive();
       modal.classList.add("open");
       document.body.style.overflow = "hidden";
       await startStream();
     }
 
-    function closeCamera() {
+    function close() {
       stopStream();
       modal.classList.remove("open");
       document.body.style.overflow = "";
-      capturedBlob = null;
-      isShooting   = false;
-      showLive();
+      blob = null; busy = false;
     }
 
-    closeBtn.addEventListener("click", closeCamera);
-    backdrop.addEventListener("click", closeCamera);
+    closeBtn.onclick = close;
+    backdrop.onclick = close;
     document.addEventListener("keydown", e => {
-      if (e.key === "Escape" && modal.classList.contains("open")) closeCamera();
+      if (e.key === "Escape" && modal.classList.contains("open")) close();
     });
 
     /* ── Stream ───────────────────────────────────────────────────── */
     async function startStream() {
       stopStream();
-      const constraints = {
-        video: { facingMode, width: { ideal: 1920 }, height: { ideal: 1080 } },
-        audio: false
-      };
       try {
-        stream = await navigator.mediaDevices.getUserMedia(constraints);
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: facing, width: { ideal: 1920 }, height: { ideal: 1080 } },
+          audio: false
+        });
         video.srcObject = stream;
         await video.play();
-        // Hide flip btn if only one camera
-        const devices = await navigator.mediaDevices.enumerateDevices();
-        const videoCams = devices.filter(d => d.kind === "videoinput");
-        flipBtn.style.display = videoCams.length > 1 ? "" : "hidden";
       } catch (err) {
-        countdown.textContent = "⚠ " + (
-          err.name === "NotAllowedError"  ? "Camera permission denied" :
-          err.name === "NotFoundError"    ? "No camera found"          :
-                                           "Cannot open camera"
-        );
-        countdown.style.display = "flex";
+        const msg = err.name === "NotAllowedError" ? "Camera permission denied"
+                  : err.name === "NotFoundError"   ? "No camera detected"
+                  : "Cannot access camera";
+        document.getElementById("cam-hint").textContent = "⚠ " + msg;
       }
     }
 
@@ -167,114 +139,88 @@
       video.srcObject = null;
     }
 
-    /* ── Flip camera ─────────────────────────────────────────────── */
-    flipBtn.addEventListener("click", () => {
-      facingMode = facingMode === "environment" ? "user" : "environment";
-      startStream();
-    });
+    /* ── Flip ─────────────────────────────────────────────────────── */
+    flipBtn.onclick = () => { facing = facing === "environment" ? "user" : "environment"; startStream(); };
 
-    /* ── Capture with countdown ───────────────────────────────────── */
-    snapBtn.addEventListener("click", async () => {
-      if (isShooting) return;
-      isShooting = true;
+    /* ── Snap — instant, no countdown ────────────────────────────── */
+    snapBtn.onclick = async () => {
+      if (busy) return;
+      busy = true;
       snapBtn.disabled = true;
 
-      await runCountdown(3);
+      /* Flash */
+      flash.classList.add("on");
+      await tick(80);
+      flash.classList.remove("on");
 
-      /* Shutter flash */
-      flash.classList.add("flash-go");
-      await delay(350);
-      flash.classList.remove("flash-go");
+      /* Capture frame */
+      const c = document.createElement("canvas");
+      c.width  = video.videoWidth  || 1280;
+      c.height = video.videoHeight || 720;
+      c.getContext("2d").drawImage(video, 0, 0);
 
-      /* Draw frame to canvas */
-      const canvas = document.createElement("canvas");
-      canvas.width  = video.videoWidth  || 1280;
-      canvas.height = video.videoHeight || 720;
-      canvas.getContext("2d").drawImage(video, 0, 0);
-
-      canvas.toBlob(blob => {
-        capturedBlob = blob;
-        previewImg.src = URL.createObjectURL(blob);
+      c.toBlob(b => {
+        blob = b;
+        prevImg.src = URL.createObjectURL(b);
+        stopStream();          // kill camera IMMEDIATELY
         showPreview();
         snapBtn.disabled = false;
-        isShooting = false;
-      }, "image/jpeg", 0.92);
-    });
-
-    async function runCountdown(from) {
-      countdown.style.display = "flex";
-      for (let n = from; n >= 1; n--) {
-        countdown.textContent = n;
-        countdown.classList.add("pop");
-        await delay(700);
-        countdown.classList.remove("pop");
-        await delay(300);
-      }
-      countdown.style.display = "none";
-    }
+        busy = false;
+      }, "image/jpeg", 0.93);
+    };
 
     /* ── Preview actions ─────────────────────────────────────────── */
-    retakeBtn.addEventListener("click", () => {
-      capturedBlob = null;
-      previewImg.src = "";
+    retakeBtn.onclick = async () => {
+      blob = null; prevImg.src = "";
       showLive();
-    });
+      await startStream();
+    };
 
-    useBtn.addEventListener("click", () => {
-      if (!capturedBlob || !targetDrop) { closeCamera(); return; }
+    useBtn.onclick = () => {
+      if (!blob || !targetDrop) { close(); return; }
 
-      /* Turn the blob into a File and inject it into the drop zone */
-      const ts   = new Date().toISOString().slice(0,19).replace(/[:T]/g,"-");
       const inp  = targetDrop.querySelector("input[type=file]");
-      const name = `camera-${inp ? inp.name : "capture"}-${ts}.jpg`;
-      const file = new File([capturedBlob], name, { type: "image/jpeg" });
+      const ts   = new Date().toISOString().slice(0,19).replace(/[:T]/g,"-");
+      const name = `cam-${inp ? inp.name : "photo"}-${ts}.jpg`;
+      const file = new File([blob], name, { type: "image/jpeg" });
 
-      /* Inject into the existing files{} map via a CustomEvent that
-         tool.js listens for — OR trigger the same logic manually.      */
-      const ev = new CustomEvent("camera:captured", {
-        bubbles: true,
-        detail: { file, dropEl: targetDrop }
-      });
-      targetDrop.dispatchEvent(ev);
+      /* Fire custom event — tool.js listener will inject into drop */
+      targetDrop.dispatchEvent(new CustomEvent("camera:captured", {
+        bubbles: true, detail: { file, dropEl: targetDrop }
+      }));
+      close();
+    };
 
-      closeCamera();
-    });
-
-    /* ── View helpers ─────────────────────────────────────────────── */
+    /* ── View switchers ───────────────────────────────────────────── */
     function showLive() {
-      liveView.hidden    = false;
-      previewView.hidden = true;
-      camLabel.textContent = "📷 LIVE CAMERA";
+      liveView.hidden = false;
+      prevView.hidden = true;
+      lbl.textContent = "📷 Camera";
     }
     function showPreview() {
-      liveView.hidden    = true;
-      previewView.hidden = false;
-      camLabel.textContent = "🖼 REVIEW CAPTURE";
+      liveView.hidden = true;
+      prevView.hidden = false;
+      lbl.textContent = "📸 Review photo";
     }
 
-    /* ── Wire camera:captured into tool.js's files store ─────────── */
+    /* ── Event: inject captured file into drop zone ──────────────── */
     document.addEventListener("camera:captured", e => {
       const { file, dropEl } = e.detail;
       const inp     = dropEl.querySelector("input[type=file]");
       const span    = dropEl.querySelector("span");
-      const prevImg = dropEl.querySelector(".drop-preview");
+      const preview = dropEl.querySelector(".drop-preview");
       if (!inp) return;
 
-      /* Update the files{} object exposed by tool.js */
       if (window._sigFiles) window._sigFiles[inp.name] = file;
-
       dropEl.classList.add("has");
       if (span) span.textContent = file.name;
-      if (prevImg) {
-        prevImg.src = URL.createObjectURL(file);
-      }
+      if (preview) preview.src = URL.createObjectURL(file);
 
-      /* Keep docURL / refURL in sync */
       const url = URL.createObjectURL(file);
       if (inp.name === "document") window._sigDocURL = url;
       if (inp.name === "reference") window._sigRefURL = url;
     });
 
-    function delay(ms) { return new Promise(r => setTimeout(r, ms)); }
+    function tick(ms) { return new Promise(r => setTimeout(r, ms)); }
   });
 })();
