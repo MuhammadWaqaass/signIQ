@@ -1,5 +1,9 @@
 const mode=document.body.dataset.mode,$=s=>document.querySelector(s),files={};
 let docURL=null, refURL=null;
+// Expose internals so camera.js can inject captured frames
+window._sigFiles = files;
+Object.defineProperty(window, '_sigDocURL', { get:()=>docURL, set:v=>{ docURL=v; } });
+Object.defineProperty(window, '_sigRefURL', { get:()=>refURL, set:v=>{ refURL=v; } });
 document.querySelectorAll(".drop").forEach(d=>{
   const span=d.querySelector("span");
   if(span) d.dataset.defaultText = span.textContent;
