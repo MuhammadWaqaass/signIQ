@@ -1,354 +1,414 @@
 # 📖 SignIQ — Complete Codebase Architecture & Engineering Walkthrough
 
-> **A comprehensive guide to the SignIQ platform: System Design, File-by-File Breakdown, Deep Learning Pipelines, and Architectural Decisions.**
+> **A comprehensive technical guide to the SignIQ platform: System Design, File-by-File Analysis, Pure-ONNX Deep Learning Pipelines, and Architectural Decisions.**
 
 ---
 
 ## 📑 Table of Contents
 1. [Executive Summary & Problem Statement](#1-executive-summary--problem-statement)
-2. [High-Level System Architecture](#2-high-level-system-architecture)
+2. [High-Level System Architecture & Design Approaches](#2-high-level-system-architecture--design-approaches)
 3. [End-to-End Workflow & Data Flow](#3-end-to-end-workflow--data-flow)
-4. [Complete File-by-File Guide](#4-complete-file-by-file-guide)
-   - [Backend Core (`app/`)](#-backend-core-app)
-   - [AI Workers & Inference (`worker/`)](#-ai-workers--inference-worker)
+4. [Complete File-by-File Engineering Guide](#4-complete-file-by-file-engineering-guide)
+   - [Backend Gateway & API (`app/`)](#-backend-gateway--api-app)
+   - [AI Workers & Pure-ONNX Runtime (`worker/`)](#-ai-workers--pure-onnx-runtime-worker)
    - [Modern Neo-Brutalist Web UI (`frontend/`)](#-modern-neo-brutalist-web-ui-frontend)
-   - [Configuration & Infrastructure](#-configuration--infrastructure)
-5. [Key Engineering Decisions: Why Everything Was Added](#5-key-engineering-decisions-why-everything-was-added)
-6. [Data Models & State Transitions](#6-data-models--state-transitions)
-7. [Summary Table of All Components](#7-summary-table-of-all-components)
+   - [Build & Model Optimization Scripts (`scripts/`)](#-build--model-optimization-scripts-scripts)
+   - [Infrastructure & Configuration](#-infrastructure--configuration)
+5. [Key System Design Approaches & Architectural Solutions](#5-key-system-design-approaches--architectural-solutions)
+6. [Data Models & Lifecycle State Machine](#6-data-models--lifecycle-state-machine)
+7. [Comprehensive Component Index](#7-comprehensive-component-index)
 
 ---
 
 ## 1. Executive Summary & Problem Statement
 
 ### What is SignIQ?
-**SignIQ** is an autonomous, full-stack AI platform designed to solve two critical challenges in document security and workflow automation:
-1. **Signature Localization**: Finding where signatures exist across complex, messy scanned documents (cheques, contracts, forms, letters) regardless of rotation, lighting, stamps, or background text.
-2. **Signature Verification**: Verifying whether a detected signature actually belongs to the claimed individual by comparing it against a verified reference signature in high-dimensional feature space.
+**SignIQ** is an autonomous, full-stack AI platform designed to automate document verification through a two-stage deep learning pipeline:
+1. **Signature Localization (LibreYOLO9m)**: Automatically locates all handwritten signatures across scanned documents (contracts, bank cheques, legal petitions, tax forms) regardless of orientation, page folds, lighting variations, or overlapping printed text.
+2. **Signature Verification (ConvNeXt-Tiny Siamese Network)**: Compares detected signature crops against a verified reference signature in high-dimensional feature space (256-d normalized embeddings) to detect traced, copied, or mismatched signatures.
 
-### The Real-World Problem
-Traditional document processing requires manual inspection by human officers, which is slow, prone to cognitive fatigue, and easily fooled by traced or skilled forgeries. SignIQ replaces manual verification with a sub-second, two-stage deep learning pipeline wrapped in an intuitive, accessible web application.
+### The Engineering Challenge
+Deep learning models typically require dedicated GPUs and gigabytes of memory. Deploying such pipelines on cost-effective cloud services (such as **Render Free Tier: 512 MB RAM, 0.1 vCPU**) causes immediate Out-of-Memory (`SIGKILL 137`) crashes and CPU timeouts. 
+
+SignIQ overcomes this through a **pure-ONNX runtime architecture** where PyTorch is completely eliminated from the production server, memory usage drops from ~1 GB to ~220 MB, and execution times drop by 3x–10x.
 
 ---
 
-## 2. High-Level System Architecture
+## 2. High-Level System Architecture & Design Approaches
 
-SignIQ is built using an asynchronous micro-service design pattern. The compute-intensive AI operations are completely decoupled from the lightweight web server via a distributed task queue.
+SignIQ uses an asynchronous, decoupled service architecture that supports both single-instance free cloud tiers and multi-worker production clusters.
 
 ```mermaid
 graph TB
-    subgraph ClientLayer ["Client Layer (Browser / API Consumer)"]
-        UI["Web App (detect.html / similarity.html)"]
+    subgraph ClientLayer ["Client Layer (Browser / Mobile / API)"]
+        UI["Modern Web App\n(detect.html / similarity.html)"]
+        Camera["Webcam / Mobile Camera Module\n(js/camera.js)"]
         API_Client["Third-Party API Clients / cURL"]
     end
 
-    subgraph Gateway ["Web & Gateway Server (FastAPI)"]
+    subgraph WebServer ["Web & Gateway Layer (FastAPI / Uvicorn)"]
         Router["REST Router (/api/v1/jobs)"]
         FileServer["Static Asset & Crop Server (/files)"]
-        Validator["Pydantic Payload Validation"]
+        StaticFrontend["Direct Frontend Static Mount (/)"]
+        CORS["Universal Wildcard CORS Middleware"]
     end
 
-    subgraph MessagingBroker ["Message Broker"]
-        Redis[("Upstash Redis Broker\n(TLS Encrypted Queue)")]
+    subgraph ExecutionLayer ["Dual-Mode Execution Engine"]
+        AsyncTasks["In-Process Background Tasks\n(anyio Threadpool - Free Cloud Mode)"]
+        CeleryWorker["Distributed Celery Worker\n(Redis Queue - Cluster Mode)"]
     end
 
-    subgraph ComputeWorkers ["AI Inference Layer (Celery)"]
-        Worker["Celery Worker Process\n(Solo Pool Engine)"]
-        YOLO["LibreYOLO9m Detector\n(Weights: weights/best.pt)"]
-        Siamese["ConvNeXt-Tiny Siamese Network\n(Weights: Hugging Face Hub)"]
+    subgraph ModelLayer ["Pure-ONNX AI Runtime (Zero PyTorch)"]
+        YOLO["OnnxDetector (best.onnx - 80 MB)\nLibreYOLO9m • Top-Left Letterbox"]
+        Preprocess["sim_preprocess.py\nInk Isolation • Contrast Stretch"]
+        Siamese["ConvNeXt-Tiny Siamese (similarity.onnx - 112 MB)\n256-d Embedding Cosine Distance"]
     end
 
     subgraph Persistence ["Persistence Layer"]
-        DB[("Database\nSQLite (Local) / Supabase Postgres")]
-        DiskStorage["Local File Store\n(data/ uploads & crops)"]
+        DB[("Database Router\nSupabase Postgres (IPv4 Pooler:6543)\nFallback: Local SQLite (jobs.db)")]
+        DiskStorage["Isolated Storage Engine\n(data/<job_id>/ crops & documents)"]
     end
 
-    UI -->|1. Upload Images| Router
-    API_Client -->|1. Upload Images| Router
-    Router -->|2. Validate & Save Raw Files| DiskStorage
+    Camera --> UI
+    UI -->|1. Submit Multipart Form| Router
+    API_Client -->|1. Submit Multipart Form| Router
+    Router -->|2. Store Raw Uploads| DiskStorage
     Router -->|3. Record 'queued' State| DB
-    Router -->|4. Push Job ID| Redis
-    Router -.->|Return Job ID 202 Accepted| UI
+    Router -.->|4. Return 202 Accepted + job_id| UI
 
-    Redis -->|5. Pop Task| Worker
-    Worker -->|6. Run Detection| YOLO
-    YOLO -->|7. Extract Bounding Boxes| Worker
-    Worker -->|8. Crop Signatures| DiskStorage
-    Worker -->|9. Compute Embedding Distance| Siamese
-    Worker -->|10. Write Final Results & Crops| DB
+    Router -->|Mode: Free Tier| AsyncTasks
+    Router -->|Mode: Scaled Cluster| CeleryWorker
 
-    UI -.->|11. Poll Status Every 1s| Router
-    Router -.->|Read Completed Record| DB
-    UI -.->|Fetch Cropped PNGs| FileServer
+    AsyncTasks -->|5. Run Detection| YOLO
+    CeleryWorker -->|5. Run Detection| YOLO
+    YOLO -->|6. Bounding Boxes| DiskStorage
+    AsyncTasks -->|7. Verify Reference| Preprocess
+    AsyncTasks -->|8. Cosine Similarity| Siamese
+    Siamese -->|9. Commit Results & Verdict| DB
+
+    UI -.->|10. Poll Status (/api/v1/jobs/id)| Router
+    Router -.->|Read Status| DB
+    UI -.->|11. Fetch Cropped Signatures| FileServer
 ```
 
 ---
 
 ## 3. End-to-End Workflow & Data Flow
 
-When a user drops a document and a reference signature into the web application, the system executes an automated sequence across both services:
+When a user uploads a document and an optional reference signature, the system executes an automated workflow:
 
 ```mermaid
 sequenceDiagram
     autonumber
     actor User as User Browser
-    participant API as FastAPI Backend
-    participant Storage as File Storage
-    participant DB as Database (SQLAlchemy)
-    participant Redis as Upstash Redis
-    participant Worker as Celery AI Worker
+    participant API as FastAPI Gateway
+    participant Storage as File Storage (data/)
+    participant DB as SQLAlchemy (Postgres/SQLite)
+    participant Worker as Background Task Engine
+    participant YOLO as LibreYOLO9 ONNX
+    participant Siamese as ConvNeXt Siamese ONNX
 
-    User->>API: POST /api/v1/jobs (multipart/form-data: doc + ref)
-    API->>Storage: Save uploaded files into data/<job_id>/
-    API->>DB: Insert row into jobs (status='queued')
-    API->>Redis: Enqueue process_job(job_id)
+    User->>API: POST /api/v1/jobs (multipart/form-data: document + reference)
+    API->>Storage: Save uploaded files to data/<job_id>/
+    API->>DB: Insert record into jobs (status='queued')
+    API->>Worker: Dispatch process_job(job_id) in background thread
     API-->>User: HTTP 202 Accepted { "job_id": "...", "status": "queued" }
 
-    loop Polling (Every 1000ms)
+    loop Status Polling (Every 2s)
         User->>API: GET /api/v1/jobs/<job_id>
-        API->>DB: Fetch job status & result
+        API->>DB: Fetch job status & result payload
         API-->>User: Return current JSON status
     end
 
-    Redis->>Worker: Consume process_job(job_id)
     Worker->>DB: Update status='processing'
-    Worker->>Storage: Load document.jpg
-    Worker->>Worker: Run LibreYOLO detection
-    alt No Signature Found on Document
+    Worker->>Storage: Read document image
+    Worker->>YOLO: Run predict() (Top-left letterbox, 640x640)
+    YOLO-->>Worker: Return detections [x1, y1, x2, y2, conf]
+
+    alt No Signature Found
         Worker->>DB: Save { signatures_found: 0, error: "No signature detected" }
-    else Signatures Detected
-        Worker->>Worker: Verify if reference image is a signature
-        alt Reference is Invalid
-            Worker->>DB: Save { reference_is_signature: false }
-        else Both Valid
-            Worker->>Storage: Crop each signature (crop_1.png)
-            Worker->>Worker: Run Siamese ConvNeXt inference
-            Worker->>Worker: Calculate Cosine Distance & Cutoff (78%)
-            Worker->>DB: Update status='completed' with match score & verdict
+    else Signatures Located
+        Worker->>Storage: Crop signatures with 6px safety margin (crop_1.png)
+        opt Reference Provided
+            Worker->>Worker: Validate reference via sim_preprocess (ink & contrast check)
+            Worker->>Siamese: Compute 256-d embeddings for crop and reference
+            Worker->>Worker: Calculate cosine score & assign verdict (>=0.7785: SIMILAR)
         end
+        Worker->>DB: Update status='completed' with boxes, crops, scores & verdict
     end
 
-    User->>API: GET /api/v1/jobs/<job_id> (Polling catches 'completed')
-    API-->>User: HTTP 200 OK (Full Results JSON)
-    User->>User: Render side-by-side comparison boxes & verdict bar
+    User->>API: GET /api/v1/jobs/<job_id> (Poll catches 'completed')
+    API-->>User: HTTP 200 OK (Full Result JSON)
+    User->>User: Draw canvas bounding boxes & render side-by-side comparison cards
 ```
 
 ---
 
-## 4. Complete File-by-File Guide
+## 4. Complete File-by-File Engineering Guide
 
-### 📂 Backend Core (`app/`)
+### 📂 Backend Gateway & API (`app/`)
 
 #### 1. [`app/main.py`](file:///d:/SignIQ/backend/backend/app/main.py)
-* **What it is**: The main entry point for the HTTP web server.
-* **Key Responsibilities**:
-  - Initializes FastAPI with OpenAPI / Swagger documentation (`/docs`).
-  - Sets up CORS (Cross-Origin Resource Sharing) middleware to allow frontend access.
-  - Mounts `/files` to serve cropped signatures and uploaded documents securely.
-  - Mounts `/` to serve the static frontend (`frontend/`).
-  - Implements the primary REST endpoints:
-    - `GET /health`: Instant health-check probe.
-    - `POST /api/v1/jobs`: Accepts multipart uploads, saves them, generates a UUID `job_id`, records them in the database, and publishes a Celery task.
-    - `GET /api/v1/jobs/{job_id}`: Allows client polling to check status (`queued` $\to$ `processing` $\to$ `completed` / `failed`).
+* **Role**: Primary HTTP application gateway and routing hub.
+* **Core Mechanisms**:
+  - Initializes FastAPI with OpenAPI documentation (`/docs`, `/redoc`).
+  - **Universal Wildcard CORS**: Configures `CORSMiddleware` with `allow_origins=["*"]` to ensure browsers on Vercel, localhost, or custom domains can access the API without preflight rejections.
+  - **Static Asset Serving**: Mounts `/files` to serve cropped signature PNGs and documents from `DATA_DIR`. Mounts `/` to serve the static frontend directory, providing a full-stack experience from a single service.
+  - **Dual-Mode Dispatching**: Inspects `USE_CELERY` environment variable. If `true`, dispatches tasks through Celery + Redis; if `false` (default for Render Free), dispatches tasks via FastAPI `BackgroundTasks`.
+  - **REST Endpoints**:
+    - `GET /health`: Health-check probe returning `{"status": "ok", "engine": "onnx"}`.
+    - `POST /api/v1/jobs`: Receives document and optional reference files, validates format (PNG, JPG, WebP $\le$ 10 MB), writes to disk, commits `queued` state, and returns `202 Accepted`.
+    - `GET /api/v1/jobs/{job_id}`: Poll endpoint returning job status, bounding boxes, crops, and similarity results.
 
 #### 2. [`app/config.py`](file:///d:/SignIQ/backend/backend/app/config.py)
-* **What it is**: Centralized configuration management using `python-dotenv`.
-* **Key Responsibilities**:
-  - Resolves file paths relative to project root (`BASE_DIR`, `DATA_DIR`).
-  - Loads credentials (Upstash `REDIS_URL`, Supabase `DATABASE_URL`).
-  - Configures model hyper-parameters:
-    - `DETECT_CONF = 0.385`: Detection confidence threshold.
-    - `DETECT_IOU = 0.5`: Intersection-over-Union threshold for Non-Maximum Suppression (NMS).
-  - Enforces upload file limits (10 MB max, allowed formats: PNG, JPG, WebP).
+* **Role**: Environment variable parsing and centralized application settings.
+* **Core Mechanisms**:
+  - Automatically loads `.env` settings using `python-dotenv`.
+  - Resolves absolute directory paths (`BASE_DIR`, `DATA_DIR`).
+  - Sets detection defaults: `DETECT_CONF = 0.385`, `DETECT_IOU = 0.5`.
+  - Configures upload restrictions: `MAX_UPLOAD_MB = 10`, allowed MIME types.
 
 #### 3. [`app/db.py`](file:///d:/SignIQ/backend/backend/app/db.py)
-* **What it is**: Database abstraction using SQLAlchemy 2.0 ORM.
-* **Key Responsibilities**:
-  - Defines the `Job` database table schema:
-    - `id` (String primary key): UUID identifying the job.
-    - `status` (String): Tracks progress (`queued`, `processing`, `completed`, `failed`).
-    - `document_key` / `reference_key` (String): Storage paths.
-    - `result` (JSON): Stores detection coordinates, confidence, similarity score, and verdict.
-    - `error` (Text): Failure stack trace or error reason.
-    - `created_at` / `updated_at` (DateTime with timezone).
-  - Provides thread-safe session factories (`SessionLocal`) and the `get_db()` dependency injector.
+* **Role**: Database abstraction with automatic network fault tolerance.
+* **Core Mechanisms**:
+  - **Startup Connectivity Probe & SQLite Fallback**: Attempts connection to `DATABASE_URL`. If the remote database is unreachable (e.g. IPv6 network issues or authentication failures), it logs a warning and automatically falls back to a local SQLite database (`jobs.db`), ensuring zero container crash loops.
+  - **ORM Model (`Job`)**:
+    - `id`: UUID primary key.
+    - `status`: State tracker (`queued`, `processing`, `completed`, `failed`).
+    - `document_key` / `reference_key`: Storage keys for uploaded images.
+    - `result`: JSON field storing image dimensions, bounding boxes, crop URLs, similarity scores, and verdicts.
+    - `error`: Diagnostic error messages if a job fails.
+    - `created_at` / `updated_at`: UTC timestamps.
 
-#### 4. [`app/celery_app.py`](file:///d:/SignIQ/backend/backend/app/celery_app.py)
-* **What it is**: Celery task runner initialization.
-* **Key Responsibilities**:
-  - Connects to Upstash Redis using TLS (`rediss://`).
-  - Configures task serialization (JSON) and registers worker tasks under the `tasks` namespace.
+#### 4. [`app/storage.py`](file:///d:/SignIQ/backend/backend/app/storage.py)
+* **Role**: Local disk storage driver and URL resolver.
+* **Core Mechanisms**:
+  - Isolates files into unique per-job directories (`data/<job_id>/`).
+  - Blocks path traversal vulnerabilities (`../`) by validating path ancestry against `DATA_DIR`.
+  - Resolves internal file paths to public HTTP URLs (`/files/<job_id>/crop_1.png`).
 
-#### 5. [`app/storage.py`](file:///d:/SignIQ/backend/backend/app/storage.py)
-* **What it is**: Storage driver abstraction.
-* **Key Responsibilities**:
-  - Handles writing uploaded files to disk under clean, isolated job folders (`data/<job_id>/document.jpg`).
-  - Converts disk file keys into accessible HTTP URLs (`/files/<job_id>/crop_1.png`).
+#### 5. [`app/schemas.py`](file:///d:/SignIQ/backend/backend/app/schemas.py)
+* **Role**: Pydantic data validation schemas for HTTP serialization.
+* **Models**:
+  - `JobCreated`: Returned on upload with `job_id` and initial status.
+  - `JobOut`: Returned on polling with full job payload, timestamps, and error text.
 
-#### 6. [`app/schemas.py`](file:///d:/SignIQ/backend/backend/app/schemas.py)
-* **What it is**: Pydantic models for strict JSON request/response validation.
-* **Key Responsibilities**:
-  - `JobCreateResponse`: Schema returned when a job is enqueued (`job_id`, `status`).
-  - `JobResponse`: Comprehensive schema returned upon completion including bounding boxes, similarity scores, and execution timestamps.
+#### 6. [`app/celery_app.py`](file:///d:/SignIQ/backend/backend/app/celery_app.py)
+* **Role**: Celery worker instance configuration for optional distributed cluster deployment.
 
 ---
 
-### 🧠 AI Workers & Inference (`worker/`)
+### 🧠 AI Workers & Pure-ONNX Runtime (`worker/`)
 
-#### 7. [`worker/models.py`](file:///d:/SignIQ/backend/backend/worker/models.py)
-* **What it is**: Model loader and memory manager.
-* **Key Responsibilities**:
-  - Implements the **Singleton pattern** for model instances (`_detector`, `_sim_model`, `_sim_inference`).
-  - `preload_models()`: Connects to Celery's `@worker_ready.connect` signal. When the worker boots, it pre-loads both multi-gigabyte models into RAM/VRAM so the user's first job suffers zero cold-start delay.
-  - Supports loading weights from local paths (`weights/best.pt`) with automatic Hugging Face Hub fallback (`snapshot_download`).
+#### 7. [`worker/onnx_detector.py`](file:///d:/SignIQ/backend/backend/worker/onnx_detector.py)
+* **Role**: Pure-NumPy + ONNX YOLOv9 detection engine (zero PyTorch / Torchvision / LibreYOLO).
+* **Core Mechanisms**:
+  - **ONNX Session Management**: Loads `weights/best.onnx` (80 MB) with thread pool restrictions (`intra_op_num_threads=1`, `inter_op_num_threads=1`) to eliminate memory spikes.
+  - **Top-Left Letterbox Preprocessing**: Scales images preserving aspect ratio (`ratio = min(640 / H, 640 / W)`) and pastes onto a `(640, 640)` canvas at `(0, 0)` matching LibreYOLO9 training geometry.
+  - **Direct `xyxy` Decoding**: Correctly parses raw `(1, 5, 8400)` tensor proposals where rows `0:4` are already `[x1, y1, x2, y2]`. Bypasses incorrect center-based transformations.
+  - **Vectorized NMS**: Filters candidate boxes above confidence threshold (`0.385`) and applies IoU non-maximum suppression (`0.5`) in pure NumPy.
+  - **Unletterbox Mapping**: Rescales bounding boxes back to original image dimensions (`boxes / ratio`) and clips to image boundaries.
 
-#### 8. [`worker/pipeline.py`](file:///d:/SignIQ/backend/backend/worker/pipeline.py)
-* **What it is**: Pure computer-vision and model-evaluation functions (no Celery/HTTP dependencies).
-* **Key Responsibilities**:
-  - `detect(detector, image_path, conf, iou)`: Runs LibreYOLO prediction. Handles Windows-specific tensor list/single-object unpacking and returns standardized bounding box dictionaries `[x1, y1, x2, y2]`.
-  - `crop_and_save(image, box, out_path)`: Uses Pillow to crop the detected signature bounding box with integer clamping, saving it as an isolated PNG.
-  - `compare(sim_model, inference_module, crop_path, ref_path)`: Feeds both crops into the Siamese network, computes feature distance, and applies the definitive $\ge 77.85\%$ classification threshold to return **`SIMILAR`** or **`NOT_SIMILAR`**.
+#### 8. [`worker/sim_preprocess.py`](file:///d:/SignIQ/backend/backend/worker/sim_preprocess.py)
+* **Role**: Standalone image normalization and preprocessing for signature similarity.
+* **Core Mechanisms**:
+  - Extracted from the Hugging Face model repository to eliminate its top-level `import torch` dependency.
+  - **Step-by-Step Vision Pipeline**:
+    1. Alpha composite transparency onto white paper, convert to grayscale.
+    2. Background inversion (ensures dark ink on light background).
+    3. Percentile contrast stretching (`p1` to `p90`).
+    4. Ink isolation thresholding (`pixel < 160`).
+    5. Printed document line suppression (removes horizontal and vertical form lines).
+    6. Blank image detection (raises `ValueError` if ink pixel count $< 30$).
+    7. Tight bounding box cropping with 4% padding.
+    8. Square padding (preserves signature aspect ratio without artificial stretching).
+    9. Lanczos resampling to $224 \times 224$ pixels.
+  - Stores hardcoded normalization constants from `model/config.json`:
+    - `mean = [0.485, 0.456, 0.406]`, `std = [0.229, 0.224, 0.225]`.
+    - Main threshold: `0.7785`, Accept: `0.9106`, Reject: `0.5376`.
 
-#### 9. [`worker/tasks.py`](file:///d:/SignIQ/backend/backend/worker/tasks.py)
-* **What it is**: Celery background task orchestrator (`tasks.process_job`).
-* **Key Responsibilities**:
-  - Updates job state in SQLite/Postgres to `processing`.
-  - **Document Signature Check**: Checks if any signatures are detected on the document. If 0 are found, safely halts and flags that the document has no signature.
-  - **Reference Signature Validation**: Checks if the uploaded reference image actually contains signature strokes before attempting comparison.
-  - Iterates over detected document signatures, generates crops, calls the comparison pipeline, and commits the final structured JSON results.
+#### 9. [`worker/models.py`](file:///d:/SignIQ/backend/backend/worker/models.py)
+* **Role**: Thread-safe singleton model registry.
+* **Core Mechanisms**:
+  - Lazily initializes `OnnxDetector` and similarity `InferenceSession`.
+  - Guarantees models are loaded into memory exactly once per worker process.
+  - Completely devoid of PyTorch imports.
+
+#### 10. [`worker/pipeline.py`](file:///d:/SignIQ/backend/backend/worker/pipeline.py)
+* **Role**: Pure computer-vision functions for detection, cropping, and similarity scoring.
+* **Core Mechanisms**:
+  - `detect()`: Dispatches detection to `OnnxDetector`.
+  - `crop_and_save()`: Crops signatures with an added **6px safety margin** so signature loops and dots are never clipped.
+  - `compare()`: Feeds document crop and reference image into `similarity.onnx`, extracts two 256-d normalized embeddings, calculates cosine similarity $((A \cdot B + 1) / 2)$, and returns score and verdict (`SIMILAR` vs `NOT_SIMILAR`).
+
+#### 11. [`worker/tasks.py`](file:///d:/SignIQ/backend/backend/worker/tasks.py)
+* **Role**: Core background task execution coordinator (`process_job`).
+* **Core Mechanisms**:
+  - Updates job status to `processing`.
+  - Runs detection on document image. If 0 signatures found, tests at fallback threshold (`conf=0.20`) for faint signatures.
+  - **Instant Reference Validation**: Uses `sim_preprocess.preprocess()` (~50 ms) to verify reference signatures, completely eliminating redundant YOLO runs that previously caused CPU timeouts.
+  - Iterates over detected signatures, crops each one, runs similarity comparison against reference, and commits completed results to the database.
 
 ---
 
 ### 🎨 Modern Neo-Brutalist Web UI (`frontend/`)
 
-#### 10. [`frontend/index.html`](file:///d:/SignIQ/backend/backend/frontend/index.html)
-* **What it is**: The main landing page.
-* **Features**:
-  - Expressive Neo-Brutalist design (Bricolage Grotesque typography, high-contrast borders, pastel backgrounds).
-  - Feature overview, interactive product flow explanation, and direct navigation links to Detection and Similarity modes.
+#### 12. [`frontend/index.html`](file:///d:/SignIQ/backend/backend/frontend/index.html)
+* **Role**: High-conversion landing page.
+* **Features**: Neo-Brutalist typography (`Bricolage Grotesque`, `JetBrains Mono`), bold borders, interactive workflow breakdown, and direct tool navigation.
 
-#### 11. [`frontend/detect.html`](file:///d:/SignIQ/backend/backend/frontend/detect.html)
-* **What it is**: Document Signature Detection tool interface.
-* **Features**:
-  - Drag-and-drop file upload zone with instant image preview.
-  - Full-width results toolbar with "Scan Next Document ↺" reset button.
-  - Side-by-side two-column layout:
-    - **Left**: Document Overview panel rendering an HTML5 Canvas bounding all located signatures in real-time.
-    - **Right**: Summary card (`✔ 1 Signature Located`) and detection cards showing cropped signatures and animated confidence bars.
+#### 13. [`frontend/detect.html`](file:///d:/SignIQ/backend/backend/frontend/detect.html)
+* **Role**: Document Signature Localization tool page.
+* **Features**: Drag-and-drop file upload, camera snap trigger, dynamic HTML5 Canvas rendering bounding boxes, and crop detail cards with confidence bars.
 
-#### 12. [`frontend/similarity.html`](file:///d:/SignIQ/backend/backend/frontend/similarity.html)
-* **What it is**: Signature Similarity Verification tool interface.
-* **Features**:
-  - Dual upload zones (Document Image + Reference Signature).
-  - Clean focused verification view without visual clutter.
-  - Renders the **Dual Side-by-Side Comparison Box** (`📄 Document Signature` vs `🖋 Reference Signature`).
-  - Displays the prominent match percentage, animated progress bar, and unambiguous **`✔ SIMILAR`** or **`✖ NOT SIMILAR`** verdict banner.
+#### 14. [`frontend/similarity.html`](file:///d:/SignIQ/backend/backend/frontend/similarity.html)
+* **Role**: 1-to-1 Signature Similarity Verification tool page.
+* **Features**: Dual upload zones (Document + Reference), side-by-side comparison view (`📄 Document Signature` vs `🖋 Reference Signature`), percentage match meter, and prominent binary verdict banner (`✔ SIMILAR` or `✖ NOT SIMILAR`).
 
-#### 13. [`frontend/js/tool.js`](file:///d:/SignIQ/backend/backend/frontend/js/tool.js)
-* **What it is**: The dynamic controller for both interactive tool pages.
-* **Key Responsibilities**:
-  - Drag-and-drop state management and local preview generation using `URL.createObjectURL`.
-  - Form submission and status state toggling (displays animated spinner during scanning).
-  - Polling coordinator: calls `runJob()` from `api.js` and updates the UI based on job stages.
-  - Dynamic canvas rendering: calculates coordinate aspect ratios, draws high-visibility teal/green bounding boxes, and prints label tags.
-  - Card generator: builds dual-box comparison templates with animated CSS progress bars.
+#### 15. [`frontend/js/tool.js`](file:///d:/SignIQ/backend/backend/frontend/js/tool.js)
+* **Role**: UI controller and state manager.
+* **Core Mechanisms**:
+  - File drag-and-drop handlers with instant local preview using `URL.createObjectURL`.
+  - Canvas coordinate scaling: accurately maps server bounding boxes back onto responsive canvas views.
+  - Dynamic result card generation with animated CSS progress bars.
 
-#### 14. [`frontend/js/api.js`](file:///d:/SignIQ/backend/backend/frontend/js/api.js)
-* **What it is**: REST API client library.
-* **Key Responsibilities**:
-  - Dispatches `POST /api/v1/jobs` with `FormData`.
-  - Implements recursive `poll()` with 1000ms delay until status reaches `completed` or `failed`.
+#### 16. [`frontend/js/camera.js`](file:///d:/SignIQ/backend/backend/frontend/js/camera.js)
+* **Role**: Live webcam and mobile camera integration.
+* **Core Mechanisms**:
+  - Accesses camera via `navigator.mediaDevices.getUserMedia`.
+  - Renders a neo-brutalist modal with live video feed.
+  - Captures instant full-frame snapshots, converts to `File` objects, and injects directly into the active upload dropzone.
 
-#### 15. [`frontend/css/style.css`](file:///d:/SignIQ/backend/backend/frontend/css/style.css)
-* **What it is**: Custom stylesheet implementing the complete Neo-Brutalist design system.
-* **Design System Properties**:
-  - Solid, intentional black borders (`2px solid var(--ink)`).
-  - Flat, crisp drop shadows (`4px 4px 0 var(--ink)`).
-  - Expressive typography: `Bricolage Grotesque` (bold headings), `JetBrains Mono` (metrics & tags), `Instrument Serif` (editorial accents).
-  - Semantic color palette: Cream (`#fffdf7`), Lavender (`#e3ddff`), Teal (`#1f7a6d`), Red (`#d63031`), Orange (`#ff5722`).
+#### 17. [`frontend/js/config.js`](file:///d:/SignIQ/backend/backend/frontend/js/config.js)
+* **Role**: Dynamic API base URL configuration. Automatically targets `window.location.origin` when self-hosted on Render, or points to cloud backend URL.
+
+#### 18. [`frontend/js/api.js`](file:///d:/SignIQ/backend/backend/frontend/js/api.js)
+* **Role**: Resilient REST API client library.
+* **Core Mechanisms**:
+  - Dispatches `POST /api/v1/jobs` with multipart form data.
+  - **Resilient Polling Loop**: Polls `GET /api/v1/jobs/<id>` every 2s for up to 90 attempts.
+  - **Error Tolerance**: Catches transient 502/network hiccups during server restarts or deployments without crashing the UI, retrying gracefully until the worker completes.
+
+#### 19. [`frontend/css/style.css`](file:///d:/SignIQ/backend/backend/frontend/css/style.css) & [`frontend/css/camera.css`](file:///d:/SignIQ/backend/backend/frontend/css/camera.css)
+* **Role**: Complete design system styling:
+  - 2px solid high-contrast black borders.
+  - Crisp 4px box drop shadows (`4px 4px 0 #111`).
+  - Strict palette: Cream (`#fffdf7`), Lavender (`#e3ddff`), Emerald Teal (`#1f7a6d`), Alert Red (`#d63031`).
 
 ---
 
-### ⚙️ Configuration & Infrastructure
+### 🔧 Build & Model Optimization Scripts (`scripts/`)
 
-#### 16. [`.gitignore`](file:///d:/SignIQ/backend/backend/.gitignore)
-* **What it does**: Ensures rock-solid security and keeps the git repository clean:
-  - Excludes `.env` and all secret files (Upstash passwords, Supabase keys).
-  - Excludes the `data/` directory (prevents user uploads from leaking into git).
-  - Excludes the 240 MB `weights/best.pt` file (prevents breaking GitHub's 100MB file limit).
-  - Excludes Python `.venv/` and `__pycache__/`.
+#### 20. [`scripts/export_to_onnx.py`](file:///d:/SignIQ/backend/backend/scripts/export_to_onnx.py)
+* **Role**: Automated build-time model tracing and ONNX compilation.
+* **Core Mechanisms**:
+  - `export_detector()`: Downloads `best.pt` (242 MB) from Hugging Face (`ayse67895/Signature-detection`) if missing, runs `LibreYOLO.export(format="onnx", imgsz=640)`, producing `weights/best.onnx` (80 MB).
+  - `export_similarity()`: Downloads ConvNeXt-Tiny PyTorch weights from `izamscientist/signature-similarity-convnext-tiny`, wraps embedding extraction into an `EmbeddingWrapper`, and compiles to `weights/similarity.onnx` (112 MB) with dynamic batch axes.
+  - Windows cp1252 stdout encoding fix to prevent emoji crashes.
 
-#### 17. [`.env.example`](file:///d:/SignIQ/backend/backend/.env.example)
-* **What it does**: Public configuration template for developers cloning the project. Contains placeholder variables with clear explanatory comments.
-
-#### 18. [`requirements.txt`](file:///d:/SignIQ/backend/backend/requirements.txt)
-* **What it does**: Pinned Python package dependencies ensuring identical reproducible builds across environments (`fastapi`, `uvicorn`, `celery`, `redis`, `torch`, `torchvision`, `libreyolo`, `huggingface_hub`, `pillow`, `sqlalchemy`).
+#### 21. [`scripts/download_models.py`](file:///d:/SignIQ/backend/backend/scripts/download_models.py)
+* **Role**: Standalone downloader for pre-compiled ONNX models or raw weights.
 
 ---
 
-## 5. Key Engineering Decisions: Why Everything Was Added
+### ⚙️ Infrastructure & Configuration
 
-| Decision / Feature | Problem It Solved | How It Was Solved |
+#### 22. [`render.yaml`](file:///d:/SignIQ/backend/backend/render.yaml)
+* **Role**: Declarative Infrastructure-as-Code for Render cloud deployment.
+* **Build Command**:
+  ```yaml
+  buildCommand: >-
+    pip install -r requirements-build.txt &&
+    pip install -r requirements.txt &&
+    python scripts/export_to_onnx.py &&
+    pip uninstall -y torch torchvision libreyolo onnxscript torchaudio 2>/dev/null || true
+  ```
+* **Start Command**:
+  ```yaml
+  startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT --workers 1
+  ```
+
+#### 23. [`requirements-build.txt`](file:///d:/SignIQ/backend/backend/requirements-build.txt)
+* **Role**: Build-time compilation dependencies (`torch`, `torchvision`, `libreyolo`, `onnxscript`). Installed strictly during ONNX export, then purged from the container.
+
+#### 24. [`requirements.txt`](file:///d:/SignIQ/backend/backend/requirements.txt)
+* **Role**: Lightweight production runtime dependencies (`fastapi`, `uvicorn`, `onnxruntime`, `numpy`, `pillow`, `sqlalchemy`, `psycopg`).
+
+#### 25. [`.gitignore`](file:///d:/SignIQ/backend/backend/.gitignore)
+* **Role**: Protects credentials (`.env`), prevents model weights (`weights/*.pt`, `*.onnx`) from inflating git history, and ignores user uploads (`data/`).
+
+---
+
+## 5. Key System Design Approaches & Architectural Solutions
+
+| Challenge | Problem | Applied System Design Solution |
 | :--- | :--- | :--- |
-| **Asynchronous Task Queue (Celery + Redis)** | Deep learning models take 1–3 seconds to run. Running them synchronously in FastAPI would block HTTP workers and cause connection timeouts under traffic. | FastAPI receives the file, creates a job record, pushes it to an Upstash Redis queue, and immediately returns a `job_id`. The client polls asynchronously. |
-| **Worker Model Preloading** | Loading multi-gigabyte PyTorch models on each request takes 5-10 seconds of cold-start latency. | Used `@worker_ready.connect` signal in `models.py` to load LibreYOLO and ConvNeXt into memory when the worker process boots. Subsequent requests execute instantly. |
-| **Pre-Match Signature Check** | If a user uploaded an image without a signature (e.g. an ID card photo or a blank document), the Siamese network would still output an arbitrary comparison number. | Added validation in `worker/tasks.py`: the detector verifies signatures on the document, and pre-checks the reference image before running the similarity model. |
-| **Strict Binary Verdicts (`SIMILAR` vs `NOT SIMILAR`)** | Intermediate classifications like "SUSPICIOUS" or "INCONCLUSIVE" confuse end users and don't provide actionable answers. | Simplified logic to strictly 2 outcomes: If score $\ge 77.85\% \to$ **`SIMILAR`**, otherwise $\to$ **`NOT SIMILAR`**, while always displaying the exact match percentage bar. |
-| **Dual Comparison UI** | Users couldn't tell which signature from the document was being compared against the reference. | Replaced confusing overview cards with side-by-side dual boxes (`📄 Document Signature` vs `🖋 Reference Signature`) with the verdict displayed directly below. |
-| **Zero-Framework Neo-Brutalism** | Modern JS frameworks (React/Vue/Webpack) add thousands of dependencies and complex build chains. | Used native HTML5/CSS3/ES6 served directly by FastAPI. Zero build steps, instant load times, and responsive across desktop and mobile. |
+| **512 MB Cloud Memory Limit** | PyTorch and LibreYOLO imports consumed 500+ MB idle RAM. | **Pure-ONNX Runtime**: Split build vs runtime dependencies. Exported ONNX during build, purged PyTorch, ran runtime on `onnxruntime` + NumPy (~220 MB total). |
+| **CPU Starvation & 502 Timeouts** | Running YOLO 4 times per similarity request froze 0.1 vCPU for ~45s. | **Reference Bypass**: Replaced YOLO scans on isolated reference crops with instant (~50 ms) validation via `sim_preprocess`. Cut runtime to ~3–5s. |
+| **Render Free IPv6 Failure** | Direct Supabase connection on port 5432 failed with `Network is unreachable`. | **IPv4 Transaction Pooler**: Routed database traffic to port `6543`, connecting over AWS IPv4 without requiring paid add-ons. |
+| **Database Failure Crash Loops** | Server crashed at startup if database credentials failed or network dropped. | **Automated SQLite Fallback**: Probed connection at boot in `app/db.py`; automatically downgraded to local SQLite on error. |
+| **Cross-Origin Rejections** | Frontend on Vercel was blocked with `400 Disallowed CORS origin`. | **Wildcard CORS Middleware**: Enabled `allow_origins=["*"]` with `allow_credentials=False` in `app/main.py`. |
+| **Dual Infrastructure Overhead** | Managing separate Vercel and Render services caused deployment sync lag. | **Full-Stack Self-Hosting**: Mounted static frontend directly in FastAPI at `/`, enabling a unified, zero-CORS single-service deployment. |
+| **Bounding Box Misalignment** | YOLOv8 `xywh2xyxy` transform and center-padding collapsed detection boxes. | **YOLO9 Native Decoding**: Removed coordinate transformation (YOLO9 output is already `xyxy`) and aligned preprocessor to top-left letterboxing. |
+| **Pen Stroke Clipping** | Tight bounding boxes occasionally sliced outer signature flourishes. | **Safety Margin Padding**: Added a 6px padded crop margin in `worker/pipeline.py` to preserve signature context. |
 
 ---
 
-## 6. Data Models & State Transitions
+## 6. Data Models & Lifecycle State Machine
 
-### Job Lifecycle State Machine
+### Job Lifecycle States
 
 ```mermaid
 stateDiagram-v2
     [*] --> queued: POST /api/v1/jobs
     queued --> processing: Worker picks up task
-    processing --> completed: Inference succeeded
-    processing --> failed: Uncaught exception / corrupt file
+    processing --> completed: Inference successful (detections + scores generated)
+    processing --> failed: Uncaught exception / corrupted image
     completed --> [*]
     failed --> [*]
 ```
 
-### Database Schema Table (`jobs`)
+### Database Schema (`jobs` table)
 
-| Column Name | SQL Type | Constraints | Description |
+| Column | Type | Constraints | Description |
 | :--- | :--- | :--- | :--- |
-| `id` | `VARCHAR(36)` | `PRIMARY KEY` | Unique UUIDv4 identifier for the job |
-| `status` | `VARCHAR(20)` | `NOT NULL`, Default: `'queued'` | Lifecycle stage: `queued`, `processing`, `completed`, `failed` |
-| `document_key` | `VARCHAR(300)` | `NOT NULL` | Path where the uploaded document image is stored |
-| `reference_key` | `VARCHAR(300)` | `NULLABLE` | Path to the target reference signature (if similarity mode) |
-| `result` | `JSON` / `JSONB` | `NULLABLE` | Full model payload (detections, boxes, similarity scores, verdicts) |
-| `error` | `TEXT` | `NULLABLE` | Error message if status transitioned to `failed` |
-| `created_at` | `TIMESTAMPTZ` | `NOT NULL` | Timestamp when the job was submitted |
-| `updated_at` | `TIMESTAMPTZ` | `NOT NULL` | Timestamp when the job was last updated |
+| `id` | `VARCHAR(36)` | `PRIMARY KEY` | UUIDv4 identifier for the job |
+| `status` | `VARCHAR(20)` | `NOT NULL` (Default: `'queued'`) | Current stage (`queued`, `processing`, `completed`, `failed`) |
+| `document_key` | `VARCHAR(300)` | `NOT NULL` | Disk path key to document image |
+| `reference_key` | `VARCHAR(300)` | `NULLABLE` | Disk path key to reference signature (similarity mode) |
+| `result` | `JSON` | `NULLABLE` | Full output (detections, boxes, crop URLs, similarity scores, verdicts) |
+| `error` | `TEXT` | `NULLABLE` | Diagnostic error message if status is `failed` |
+| `created_at` | `TIMESTAMPTZ` | `NOT NULL` | Job creation timestamp |
+| `updated_at` | `TIMESTAMPTZ` | `NOT NULL` | Last status modification timestamp |
 
 ---
 
-## 7. Summary Table of All Components
+## 7. Comprehensive Component Index
 
-| Path | Primary Language | Role in System |
-| :--- | :--- | :--- |
-| [`app/main.py`](file:///d:/SignIQ/backend/backend/app/main.py) | Python (FastAPI) | HTTP Gateway, routing, CORS, and static file serving |
-| [`app/config.py`](file:///d:/SignIQ/backend/backend/app/config.py) | Python | Configuration, model parameters, and environment management |
-| [`app/db.py`](file:///d:/SignIQ/backend/backend/app/db.py) | Python (SQLAlchemy) | Database connection and `Job` table ORM mapping |
-| [`app/celery_app.py`](file:///d:/SignIQ/backend/backend/app/celery_app.py) | Python (Celery) | Task queue broker setup with Upstash Redis |
-| [`app/schemas.py`](file:///d:/SignIQ/backend/backend/app/schemas.py) | Python (Pydantic) | Request/Response JSON serialization & validation schemas |
-| [`app/storage.py`](file:///d:/SignIQ/backend/backend/app/storage.py) | Python | Disk write operations and public URL mapping for crops |
-| [`worker/models.py`](file:///d:/SignIQ/backend/backend/worker/models.py) | Python (PyTorch/HF) | Singleton AI model initialization and memory pre-loading |
-| [`worker/pipeline.py`](file:///d:/SignIQ/backend/backend/worker/pipeline.py) | Python (OpenCV/PIL) | YOLO coordinate extraction, crop generation, and Siamese distance calculation |
-| [`worker/tasks.py`](file:///d:/SignIQ/backend/backend/worker/tasks.py) | Python (Celery) | Background job runner, pre-match validator, and database updater |
-| [`frontend/detect.html`](file:///d:/SignIQ/backend/backend/frontend/detect.html) | HTML5 | UI for full document signature detection with interactive canvas |
-| [`frontend/similarity.html`](file:///d:/SignIQ/backend/backend/frontend/similarity.html) | HTML5 | UI for 1-to-1 signature comparison with side-by-side view |
-| [`frontend/css/style.css`](file:///d:/SignIQ/backend/backend/frontend/css/style.css) | CSS3 | Complete Neo-Brutalist design system, responsive grids, and animations |
-| [`frontend/js/tool.js`](file:///d:/SignIQ/backend/backend/frontend/js/tool.js) | JavaScript (ES6) | Frontend event handling, canvas drawing, and dynamic DOM rendering |
-| [`frontend/js/api.js`](file:///d:/SignIQ/backend/backend/frontend/js/api.js) | JavaScript (ES6) | HTTP client handling multipart form uploads and recursive polling |
+| Component Path | Layer | Technology | Primary Function |
+| :--- | :--- | :--- | :--- |
+| [`app/main.py`](file:///d:/SignIQ/backend/backend/app/main.py) | API Gateway | FastAPI, Uvicorn | REST endpoints, CORS, static mounts, dual-mode runner |
+| [`app/config.py`](file:///d:/SignIQ/backend/backend/app/config.py) | Config | Python, dotenv | File paths, upload limits, model hyper-parameters |
+| [`app/db.py`](file:///d:/SignIQ/backend/backend/app/db.py) | Persistence | SQLAlchemy | `Job` ORM model, IPv4 connection pooling, SQLite fallback |
+| [`app/storage.py`](file:///d:/SignIQ/backend/backend/app/storage.py) | Storage | Python (pathlib) | Isolated job directory writes, public URL formatting |
+| [`app/schemas.py`](file:///d:/SignIQ/backend/backend/app/schemas.py) | Validation | Pydantic | JSON schemas for API requests and responses |
+| [`app/celery_app.py`](file:///d:/SignIQ/backend/backend/app/celery_app.py) | Tasks | Celery | Optional distributed task queue initialization |
+| [`worker/onnx_detector.py`](file:///d:/SignIQ/backend/backend/worker/onnx_detector.py) | AI Detection | ONNX Runtime, NumPy | Pure-ONNX YOLOv9 detection, top-left letterbox, NMS |
+| [`worker/sim_preprocess.py`](file:///d:/SignIQ/backend/backend/worker/sim_preprocess.py) | AI Vision | NumPy, Pillow | Ink thresholding, line suppression, contrast stretch |
+| [`worker/models.py`](file:///d:/SignIQ/backend/backend/worker/models.py) | AI Registry | Python | Singleton loader for ONNX detector and similarity sessions |
+| [`worker/pipeline.py`](file:///d:/SignIQ/backend/backend/worker/pipeline.py) | AI Pipeline | NumPy, Pillow | Padded crop generation, cosine similarity scoring |
+| [`worker/tasks.py`](file:///d:/SignIQ/backend/backend/worker/tasks.py) | AI Worker | Python | Background task execution, pre-validation, DB commits |
+| [`scripts/export_to_onnx.py`](file:///d:/SignIQ/backend/backend/scripts/export_to_onnx.py) | Build / ML | PyTorch, ONNX | Build-time conversion of YOLO9m and ConvNeXt to ONNX |
+| [`frontend/detect.html`](file:///d:/SignIQ/backend/backend/frontend/detect.html) | Frontend | HTML5, Canvas | Interactive signature localization interface |
+| [`frontend/similarity.html`](file:///d:/SignIQ/backend/backend/frontend/similarity.html) | Frontend | HTML5 | Dual-card side-by-side signature verification interface |
+| [`frontend/js/camera.js`](file:///d:/SignIQ/backend/backend/frontend/js/camera.js) | Frontend | JavaScript (ES6) | Webcam / mobile camera capture module |
+| [`frontend/js/tool.js`](file:///d:/SignIQ/backend/backend/frontend/js/tool.js) | Frontend | JavaScript (ES6) | Canvas bounding box rendering, drag-and-drop controller |
+| [`frontend/js/api.js`](file:///d:/SignIQ/backend/backend/frontend/js/api.js) | Frontend | JavaScript (ES6) | Resilient polling client with network retry handling |
+| [`frontend/css/style.css`](file:///d:/SignIQ/backend/backend/frontend/css/style.css) | Frontend | CSS3 | Neo-Brutalist design system, responsive layout, animations |
+| [`render.yaml`](file:///d:/SignIQ/backend/backend/render.yaml) | DevOps | YAML | Infrastructure-as-code build and run configuration |
 
 ---
 
 <div align="center">
-  <sub>Document generated for <b>SignIQ</b> · Automated Signature Verification Architecture</sub>
+  <sub>Document maintained for <b>SignIQ</b> · Production AI Architecture & Engineering Specification</sub>
 </div>
