@@ -13,3 +13,4 @@ torchvision
 libreyolo
 onnx
 onnxruntime
+onnxscript
