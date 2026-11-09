@@ -3,7 +3,13 @@ services:
     name: signiq-backend
     runtime: python
     plan: free
-    buildCommand: pip install -r requirements.txt && python scripts/export_to_onnx.py
+    # Build phase: install heavy torch/libreyolo only to export ONNX, then uninstall them.
+    # Runtime only needs onnxruntime (~50 MB) — no torch at all.
+    buildCommand: >-
+      pip install -r requirements-build.txt &&
+      pip install -r requirements.txt &&
+      python scripts/export_to_onnx.py &&
+      pip uninstall -y torch torchvision libreyolo onnxscript torchaudio 2>/dev/null || true
     startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT --workers 1
     envVars:
       - key: PYTHON_VERSION

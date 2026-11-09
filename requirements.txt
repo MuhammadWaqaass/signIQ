@@ -8,11 +8,7 @@ python-dotenv
 pillow
 numpy
 huggingface_hub
-torch
-torchvision
-libreyolo
-onnx
 onnxruntime
-onnxscript
+onnx
 psycopg2-binary
 psycopg[binary]

@@ -1,0 +1,6 @@
+# Heavy build-time-only deps — only installed during ONNX export, NOT in production runtime.
+# Used by: scripts/export_to_onnx.py
+torch
+torchvision
+libreyolo
+onnxscript
