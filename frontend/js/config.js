@@ -1,2 +1,2 @@
-// Change this to your deployed FastAPI URL (no trailing slash).
-window.SIG_API_BASE = window.location.origin.startsWith("http") ? window.location.origin : "http://127.0.0.1:8000";
+// API base URL for SignIQ backend
+window.SIG_API_BASE = "https://signiq.onrender.com";
