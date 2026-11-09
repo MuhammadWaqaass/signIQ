@@ -49,6 +49,7 @@ def get_similarity():
 
         print(f"[models] Loading similarity ONNX from {onnx_path}")
         opts = ort.SessionOptions()
+        opts.enable_cpu_mem_arena = False
         opts.intra_op_num_threads = 1
         opts.inter_op_num_threads = 1
         opts.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
@@ -59,7 +60,6 @@ def get_similarity():
         )
 
     if _sim_inference is None:
-        # Use our own pure-numpy/pillow reimplementation — no torch, no HF snapshot needed
         import worker.sim_preprocess as sim_preprocess
         _sim_inference = sim_preprocess
         print("[models] Using built-in sim_preprocess (zero torch)")

@@ -4,6 +4,7 @@ Exact copy of preprocess() from izamscientist/signature-similarity-convnext-tiny
 with CFG values hardcoded from model/config.json.
 
 Zero torch / torchvision imports.
+Includes pre-scale cap (max 800px) to prevent 200MB+ memory spikes on 512MB RAM cloud tiers.
 """
 import numpy as np
 from PIL import Image
@@ -39,6 +40,17 @@ def preprocess(path_or_image) -> Image.Image:
     Returns a (224, 224) PIL Image in mode 'L'.
     """
     im = Image.open(path_or_image) if isinstance(path_or_image, str) else path_or_image
+
+    # Cap maximum dimension to 800px to prevent large phone camera photos (12-48MP)
+    # from triggering 200MB+ NumPy memory spikes on 512MB RAM cloud tiers.
+    # The final ConvNeXt network only consumes 224x224, so 800px maintains 100% precision.
+    max_dim = 800
+    if max(im.size) > max_dim:
+        scale = max_dim / max(im.size)
+        new_w = max(int(im.width * scale), 1)
+        new_h = max(int(im.height * scale), 1)
+        im = im.resize((new_w, new_h), Image.BILINEAR)
+
     a = np.asarray(to_gray_on_white(im), dtype=np.float32)
 
     if np.median(a) < 127:          # dark background → invert so ink is dark on white

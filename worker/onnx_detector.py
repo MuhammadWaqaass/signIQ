@@ -16,6 +16,7 @@ import onnxruntime as ort
 class OnnxDetector:
     def __init__(self, model_path: str, conf: float = 0.385, iou: float = 0.5):
         opts = ort.SessionOptions()
+        opts.enable_cpu_mem_arena = False
         opts.intra_op_num_threads = 1
         opts.inter_op_num_threads = 1
         opts.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
@@ -82,13 +83,10 @@ class OnnxDetector:
         orig_w: int,
         orig_h: int,
     ) -> list[dict]:
-        # Transpose: (1, 5, 8400) -> (8400, 5)
-        # Columns 0:4 are ALREADY (x1, y1, x2, y2) in 640x640 letterbox coordinates
         preds = raw[0].T
         boxes_xyxy = preds[:, :4]
         scores = preds[:, 4]
 
-        # Filter by confidence threshold
         mask = scores >= self.conf_thresh
         boxes_xyxy = boxes_xyxy[mask]
         scores = scores[mask]
@@ -96,15 +94,11 @@ class OnnxDetector:
         if len(boxes_xyxy) == 0:
             return []
 
-        # Run NMS
         keep = self._nms(boxes_xyxy, scores)
         boxes_xyxy = boxes_xyxy[keep]
         scores = scores[keep]
 
-        # Map back to original image space: divide by letterbox ratio
         boxes_orig = boxes_xyxy / ratio
-
-        # Clip to original image boundaries
         boxes_orig[:, [0, 2]] = np.clip(boxes_orig[:, [0, 2]], 0, orig_w)
         boxes_orig[:, [1, 3]] = np.clip(boxes_orig[:, [1, 3]], 0, orig_h)
 
@@ -138,7 +132,6 @@ class OnnxDetector:
         conf: float | None = None,
         iou: float | None = None,
     ) -> list[dict]:
-        """Run detection inference and return list of bounding boxes."""
         old_conf, old_iou = self.conf_thresh, self.iou_thresh
         if conf is not None:
             self.conf_thresh = conf

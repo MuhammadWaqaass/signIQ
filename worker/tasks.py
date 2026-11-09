@@ -1,3 +1,4 @@
+import gc
 import traceback
 
 from celery.signals import worker_ready
@@ -38,18 +39,29 @@ def process_job(job_id: str):
             if len(low_dets) > 0:
                 detections = low_dets
 
+        # If document is an isolated signature crop and YOLO didn't locate a sub-box,
+        # treat the entire document image as the signature crop for comparison
         document = Image.open(doc_path).convert("RGB")
+        w, h = document.size
+        if len(detections) == 0 and ref_path:
+            try:
+                sim_inference.preprocess(str(doc_path))
+                detections = [{"box": [0.0, 0.0, float(w), float(h)], "confidence": 1.0, "label": "signature"}]
+            except Exception:
+                pass
 
-        # In similarity mode, validate reference image using the signature preprocessor
-        # (checks contrast stretch, ink pixels, and blank-page detection without wasting CPU on YOLO)
+        # Validate reference image
         ref_is_signature = True
         ref_error = None
         if ref_path:
             try:
                 sim_inference.preprocess(str(ref_path))
-            except Exception as e:
+            except Exception:
                 ref_is_signature = False
                 ref_error = "Reference image is blank or not a valid signature image."
+
+        # Free temporary buffer memory before running similarity model
+        gc.collect()
 
         for i, det in enumerate(detections, start=1):
             crop_key = f"{job_id}/crop_{i}.png"
@@ -57,15 +69,20 @@ def process_job(job_id: str):
             det["crop_url"] = storage.url_for(crop_key)
             if ref_path:
                 if ref_is_signature:
-                    score, verdict = pipeline.compare(sim_model, sim_inference, crop_path, ref_path)
-                    det["similarity_score"] = score
-                    det["verdict"] = verdict  # SIMILAR or NOT_SIMILAR
+                    try:
+                        score, verdict = pipeline.compare(sim_model, sim_inference, crop_path, ref_path)
+                        det["similarity_score"] = score
+                        det["verdict"] = verdict
+                    except Exception as cmp_err:
+                        print(f"Similarity comparison failed for crop {i}: {cmp_err}")
+                        det["similarity_score"] = None
+                        det["verdict"] = "ERROR"
                 else:
                     det["similarity_score"] = None
                     det["verdict"] = "INVALID_REFERENCE"
 
         job.result = {
-            "image_size": list(document.size),  # [width, height], for drawing boxes
+            "image_size": [w, h],
             "signatures_found": len(detections),
             "detections": detections,
             "reference_is_signature": ref_is_signature if ref_path else None,
