@@ -1,11 +1,10 @@
 """Loads both models once per worker / server process.
 Pure onnxruntime — zero torch / torchvision / libreyolo imports at runtime.
+Uses worker.sim_preprocess instead of the HF inference.py (which imports torch).
 """
 import os
-import sys
 
 import onnxruntime as ort
-from huggingface_hub import snapshot_download
 
 from app import config
 
@@ -15,8 +14,8 @@ os.environ.setdefault("MKL_NUM_THREADS", "1")
 os.environ.setdefault("OPENBLAS_NUM_THREADS", "1")
 
 _detector = None
-_sim_session = None   # ort.InferenceSession for similarity.onnx
-_sim_inference = None  # inference.py module from HF repo (preprocessing only)
+_sim_session = None     # ort.InferenceSession for similarity.onnx
+_sim_inference = None   # worker.sim_preprocess module (pure numpy/pillow)
 
 
 def get_detector():
@@ -37,7 +36,7 @@ def get_detector():
 
 
 def get_similarity():
-    """Returns (ort.InferenceSession, inference_module)."""
+    """Returns (ort.InferenceSession, sim_preprocess_module)."""
     global _sim_session, _sim_inference
 
     if _sim_session is None:
@@ -60,12 +59,10 @@ def get_similarity():
         )
 
     if _sim_inference is None:
-        # snapshot_download only downloads metadata/inference.py, not model weights (~few MB)
-        root = snapshot_download(config.SIMILARITY_REPO)
-        if root not in sys.path:
-            sys.path.insert(0, root)
-        import inference  # preprocessing helpers only
-        _sim_inference = inference
+        # Use our own pure-numpy/pillow reimplementation — no torch, no HF snapshot needed
+        import worker.sim_preprocess as sim_preprocess
+        _sim_inference = sim_preprocess
+        print("[models] Using built-in sim_preprocess (zero torch)")
 
     return _sim_session, _sim_inference
 
