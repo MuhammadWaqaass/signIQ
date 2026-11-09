@@ -11,7 +11,6 @@ from worker import models, pipeline
 
 @worker_ready.connect
 def preload_models(**kwargs):
-    # Load both models when the worker boots, so the first job is not slow.
     models.load_all()
 
 
@@ -29,7 +28,7 @@ def process_job(job_id: str):
         ref_path = storage.path_for(job.reference_key) if job.reference_key else None
 
         detector = models.get_detector()
-        sim_model, sim_inference = models.get_similarity()
+        sim_model, sim_inference = models.get_similarity() if ref_path else (None, None)
 
         # Detect signatures on document
         detections = pipeline.detect(detector, doc_path, config.DETECT_CONF, config.DETECT_IOU)
@@ -41,21 +40,16 @@ def process_job(job_id: str):
 
         document = Image.open(doc_path).convert("RGB")
 
-        # In similarity mode, verify if reference image is a signature before matching
+        # In similarity mode, validate reference image using the signature preprocessor
+        # (checks contrast stretch, ink pixels, and blank-page detection without wasting CPU on YOLO)
         ref_is_signature = True
         ref_error = None
         if ref_path:
-            ref_dets = pipeline.detect(detector, ref_path, conf=0.15, iou=config.DETECT_IOU)
-            if len(ref_dets) == 0:
-                try:
-                    sim_inference.preprocess(str(ref_path))
-                    ref_dets_low = pipeline.detect(detector, ref_path, conf=0.05, iou=config.DETECT_IOU)
-                    if len(ref_dets_low) == 0:
-                        ref_is_signature = False
-                        ref_error = "Reference image is not recognized as a signature. Please upload a clear signature image."
-                except Exception:
-                    ref_is_signature = False
-                    ref_error = "Reference image is blank or not a valid signature image."
+            try:
+                sim_inference.preprocess(str(ref_path))
+            except Exception as e:
+                ref_is_signature = False
+                ref_error = "Reference image is blank or not a valid signature image."
 
         for i, det in enumerate(detections, start=1):
             crop_key = f"{job_id}/crop_{i}.png"
@@ -65,7 +59,7 @@ def process_job(job_id: str):
                 if ref_is_signature:
                     score, verdict = pipeline.compare(sim_model, sim_inference, crop_path, ref_path)
                     det["similarity_score"] = score
-                    det["verdict"] = verdict  # Strictly SIMILAR or NOT_SIMILAR
+                    det["verdict"] = verdict  # SIMILAR or NOT_SIMILAR
                 else:
                     det["similarity_score"] = None
                     det["verdict"] = "INVALID_REFERENCE"
