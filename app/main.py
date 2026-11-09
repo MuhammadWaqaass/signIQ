@@ -19,9 +19,11 @@ init_db()
 
 app = FastAPI(title="SignIQ - Signature Detection & Similarity API")
 
+# Allow all origins (Vercel, localhost, custom domains) with wildcard CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=ALLOWED_ORIGINS,
+    allow_origins=["*"],
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
