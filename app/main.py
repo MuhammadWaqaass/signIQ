@@ -1,6 +1,7 @@
+import os
 import uuid
 
-from fastapi import Depends, FastAPI, File, HTTPException, UploadFile
+from fastapi import BackgroundTasks, Depends, FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy.orm import Session
@@ -10,11 +11,13 @@ from app.celery_app import celery_app
 from app.config import ALLOWED_ORIGINS, ALLOWED_TYPES, BASE_DIR, DATA_DIR, MAX_UPLOAD_MB
 from app.db import Job, get_db, init_db
 from app.schemas import JobCreated, JobOut
+from worker import models
+from worker.tasks import process_job
 
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 init_db()
 
-app = FastAPI(title="Signature Detection + Similarity API")
+app = FastAPI(title="SignIQ - Signature Detection & Similarity API")
 
 app.add_middleware(
     CORSMiddleware,
@@ -23,8 +26,16 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Serves saved crops so the frontend can display them (local dev only).
+# Serves saved crops and documents
 app.mount("/files", StaticFiles(directory=DATA_DIR), name="files")
+
+
+@app.on_event("startup")
+def preload_models():
+    """Loads ONNX models into memory when the server boots for sub-second responses."""
+    print("Preloading models for fast inference...")
+    models.load_all()
+    print("Models preloaded successfully.")
 
 
 def read_image(upload: UploadFile) -> tuple[bytes, str]:
@@ -40,11 +51,12 @@ def read_image(upload: UploadFile) -> tuple[bytes, str]:
 
 @app.get("/health")
 def health():
-    return {"status": "ok"}
+    return {"status": "ok", "engine": "onnx"}
 
 
 @app.post("/api/v1/jobs", response_model=JobCreated, status_code=202)
 def create_job(
+    background_tasks: BackgroundTasks,
     document: UploadFile = File(..., description="Document image to scan for signatures"),
     reference: UploadFile | None = File(None, description="Reference signature to compare against (optional)"),
     db: Session = Depends(get_db),
@@ -65,14 +77,22 @@ def create_job(
     db.add(job)
     db.commit()
 
-    try:
-        # Only the job id goes through Redis. The worker reads everything else from the database.
-        celery_app.send_task("tasks.process_job", args=[job_id])
-    except Exception as e:
-        job.status = "failed"
-        job.error = f"Could not enqueue job: {e}"
-        db.commit()
-        raise HTTPException(503, "Queue unavailable, try again shortly")
+    # Dual-mode execution:
+    # 1. Use Celery if explicitly enabled (e.g. multi-process worker with Redis).
+    # 2. Otherwise use FastAPI BackgroundTasks (ideal for Render Free 512MB single service).
+    use_celery = os.getenv("USE_CELERY", "false").lower() in ("true", "1")
+    enqueued = False
+
+    if use_celery:
+        try:
+            celery_app.send_task("tasks.process_job", args=[job_id])
+            enqueued = True
+        except Exception as e:
+            print(f"Celery enqueue failed ({e}), falling back to in-process background task.")
+            enqueued = False
+
+    if not enqueued:
+        background_tasks.add_task(process_job, job_id)
 
     return JobCreated(job_id=job_id, status="queued")
 
@@ -95,4 +115,3 @@ def get_job(job_id: str, db: Session = Depends(get_db)):
 frontend_dir = BASE_DIR / "frontend"
 if frontend_dir.exists():
     app.mount("/", StaticFiles(directory=str(frontend_dir), html=True), name="frontend")
-

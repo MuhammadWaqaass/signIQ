@@ -11,3 +11,5 @@ huggingface_hub
 torch
 torchvision
 libreyolo
+onnx
+onnxruntime

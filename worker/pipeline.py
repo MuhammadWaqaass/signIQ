@@ -1,7 +1,10 @@
-"""Pure functions: no Celery, no FastAPI, no database. Easy to test alone."""
+"""Pure functions: no Celery, no FastAPI, no database. Easy to test alone.
+Supports both ONNX runtime and PyTorch models seamlessly.
+"""
 from pathlib import Path
-
+import numpy as np
 from PIL import Image
+
 
 def detect(detector, image_path: Path, conf: float, iou: float) -> list[dict]:
     results = detector.predict(source=str(image_path), conf=conf, iou=iou, save=False)
@@ -30,7 +33,23 @@ def crop_and_save(image: Image.Image, box: list[float], out_path: Path) -> Path:
 
 
 def compare(sim_model, inference_module, crop_path: Path, reference_path: Path) -> tuple[float, str]:
-    score = float(inference_module.compare(sim_model, str(crop_path), str(reference_path)))
+    if hasattr(sim_model, "run"):  # ONNX runtime InferenceSession
+        mean = np.array(inference_module.CFG["normalisation_mean"], dtype=np.float32).reshape(1, 3, 1, 1)
+        std = np.array(inference_module.CFG["normalisation_std"], dtype=np.float32).reshape(1, 3, 1, 1)
+
+        arr_a = np.asarray(inference_module.preprocess(str(crop_path)), dtype=np.float32) / 255.0
+        arr_b = np.asarray(inference_module.preprocess(str(reference_path)), dtype=np.float32) / 255.0
+        x = np.stack([arr_a, arr_b])
+        x = np.expand_dims(x, 1)
+        x = np.repeat(x, 3, axis=1)
+        x = (x - mean) / std
+
+        emb = sim_model.run(None, {"input": x.astype(np.float32)})[0]
+        ea, eb = emb[0:1], emb[1:2]
+        score = float(((ea * eb).sum(1) + 1)[0] / 2)
+    else:
+        score = float(inference_module.compare(sim_model, str(crop_path), str(reference_path)))
+
     threshold = 0.7785
     verdict = "SIMILAR" if score >= threshold else "NOT_SIMILAR"
     return round(score, 4), verdict

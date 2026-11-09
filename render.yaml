@@ -1,0 +1,17 @@
+services:
+  - type: web
+    name: signiq-backend
+    runtime: python
+    plan: free
+    buildCommand: pip install -r requirements.txt && python scripts/export_to_onnx.py
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT --workers 1
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.9
+      - key: USE_CELERY
+        value: "false"
+      - key: ALLOWED_ORIGINS
+        value: "*"
+      # Optional: set DATABASE_URL if connecting to Supabase PostgreSQL, otherwise uses SQLite jobs.db
+      - key: DATABASE_URL
+        sync: false
