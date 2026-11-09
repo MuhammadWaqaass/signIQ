@@ -30,14 +30,6 @@ app.add_middleware(
 app.mount("/files", StaticFiles(directory=DATA_DIR), name="files")
 
 
-@app.on_event("startup")
-def preload_models():
-    """Loads ONNX models into memory when the server boots for sub-second responses."""
-    print("Preloading models for fast inference...")
-    models.load_all()
-    print("Models preloaded successfully.")
-
-
 def read_image(upload: UploadFile) -> tuple[bytes, str]:
     if upload.content_type not in ALLOWED_TYPES:
         raise HTTPException(415, f"{upload.filename}: only PNG, JPEG or WebP images are allowed")
