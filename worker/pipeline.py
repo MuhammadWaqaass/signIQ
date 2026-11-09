@@ -11,11 +11,14 @@ def detect(detector, image_path: Path, conf: float, iou: float) -> list[dict]:
     return detector.predict(str(image_path), conf=conf, iou=iou)
 
 
-def crop_and_save(image: Image.Image, box: list[float], out_path: Path) -> Path:
+def crop_and_save(image: Image.Image, box: list[float], out_path: Path, pad: int = 6) -> Path:
+    """Crop bounding box with a small margin so signature strokes aren't cut at edges."""
     w, h = image.size
     x1, y1, x2, y2 = box
-    x1, y1 = max(0, int(x1)), max(0, int(y1))
-    x2, y2 = min(w, int(x2)), min(h, int(y2))
+    x1 = max(0, int(x1) - pad)
+    y1 = max(0, int(y1) - pad)
+    x2 = min(w, int(x2) + pad)
+    y2 = min(h, int(y2) + pad)
     out_path.parent.mkdir(parents=True, exist_ok=True)
     image.crop((x1, y1, x2, y2)).save(out_path)
     return out_path
