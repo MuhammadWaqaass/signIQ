@@ -36,6 +36,22 @@ pinned: false
 </div>
 <img width="712" height="439" alt="image" src="https://github.com/user-attachments/assets/a05aea94-8237-402f-b517-c28fba9803a6" />
 
+## RF-DETR (Roboflow Detection Transformer) results
+
+<img width="4200" height="3000" alt="rfdetr_4panel_summary" src="https://github.com/user-attachments/assets/572de873-db55-494e-8399-47c59669e993" />
+
+## LibreYOLO results
+
+<img width="4170" height="3000" alt="yolo_4panel_overview" src="https://github.com/user-attachments/assets/536a0acb-88c6-4d43-a284-b4e480eb5bd3" />
+
+## LibreYOLO vs RF-DETR
+
+| Metric Category | Metric | RF-DETR (Peak across training) | LibreYOLO (Peak across training) | Winner & Difference |
+|---|---|---:|---:|---|
+| Comprehensive Accuracy | mAP@50:95 | 78.86% (Epoch 28) | **82.25%** (Epoch 35) | **LibreYOLO (+3.39%)** |
+| Basic Detection | mAP@50 | 97.00% (Epoch 21) | **97.28%** (Epoch 35) | **LibreYOLO (+0.28%)** |
+
+
 ## 🌟 Key Features
 
 - **🔍 Precise Signature Detection (LibreYOLO9m)**
