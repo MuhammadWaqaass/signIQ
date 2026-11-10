@@ -23,9 +23,14 @@ COPY --chown=user:user requirements.txt .
 RUN pip install --no-cache-dir --upgrade pip && \
     pip install --no-cache-dir -r requirements.txt
 
-# Pre-download weights into container image during build phase (0s runtime cold-start)
-COPY --chown=user:user scripts/ scripts/
-RUN python scripts/download_models.py
+# Export ONNX models at build time. torch/libreyolo are needed only for the export
+# and are uninstalled in the same layer so they don't bloat the runtime image.
+COPY requirements-build.txt .
+COPY scripts/ scripts/
+RUN pip install --no-cache-dir -r requirements-build.txt && \
+    python scripts/export_to_onnx.py && \
+    pip uninstall -y torch torchvision torchaudio libreyolo onnxscript && \
+    test -f weights/best.onnx && test -f weights/similarity.onnx
 
 # Copy application code
 COPY --chown=user:user . .
