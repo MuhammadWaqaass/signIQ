@@ -9,7 +9,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libglib2.0-0 \
     && rm -rf /var/lib/apt/lists/*
 
-# Set up non-root user according to Hugging Face Spaces standard (UID 1000)
+# Set up non-root user (UID 1000)
 RUN useradd -m -u 1000 user
 ENV HOME=/home/user \
     PATH=/home/user/.local/bin:$PATH \
@@ -23,19 +23,21 @@ COPY --chown=user:user requirements.txt .
 RUN pip install --no-cache-dir --upgrade pip && \
     pip install --no-cache-dir -r requirements.txt
 
-# Pre-download weights into container image during build phase (0s runtime cold-start)
+# Pre-create weights directory with correct ownership
+RUN mkdir -p /app/weights && chown -R user:user /app/weights
+
+# Pre-download ONNX weights during build phase (cached in Docker layer)
 COPY --chown=user:user scripts/ scripts/
 RUN python scripts/download_models.py
 
 # Copy application code
 COPY --chown=user:user . .
 
-# Ensure user permissions for local data and jobs database
+# Ensure user permissions for local data and weights
 RUN mkdir -p /app/data && chown -R user:user /app
 
 USER user
 
-# Expose default Hugging Face Spaces port
 EXPOSE 7860
 
 # Start Supervisor to run FastAPI and Celery Worker together
