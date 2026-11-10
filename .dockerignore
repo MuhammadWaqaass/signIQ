@@ -1,0 +1,34 @@
+# Exclude large model weights from Docker build context.
+# They are downloaded at build time via scripts/download_models.py
+# and at runtime via scripts/entrypoint.sh if missing.
+weights/
+*.pt
+*.pth
+*.bin
+*.onnx
+
+# Exclude venv and caches
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# Exclude local data and test artifacts
+data/
+uploads/
+
+# Exclude environment files
+.env
+.env.*
+!.env.example
+
+# Exclude OS / IDE files
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+
+# Exclude git
+.git/

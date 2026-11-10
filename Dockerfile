@@ -26,8 +26,11 @@ RUN pip install --no-cache-dir --upgrade pip && \
 # Pre-create weights directory with correct ownership
 RUN mkdir -p /app/weights && chown -R user:user /app/weights
 
-# Pre-download ONNX weights during build phase (cached in Docker layer)
+# Copy scripts first (download step — cache busted when scripts/ changes)
 COPY --chown=user:user scripts/ scripts/
+
+# Download ONNX weights during build phase for faster startup.
+# The entrypoint will re-download if this layer is stale/cached incorrectly.
 RUN python scripts/download_models.py
 
 # Copy application code
@@ -36,9 +39,13 @@ COPY --chown=user:user . .
 # Ensure user permissions for local data and weights
 RUN mkdir -p /app/data && chown -R user:user /app
 
+# Make entrypoint executable
+RUN chmod +x /app/scripts/entrypoint.sh
+
 USER user
 
 EXPOSE 7860
 
-# Start Supervisor to run FastAPI and Celery Worker together
-CMD ["supervisord", "-c", "/app/supervisord.conf"]
+# Entrypoint checks weights exist before starting supervisord.
+# Falls back to downloading if the build-time layer was cached/missed.
+CMD ["/app/scripts/entrypoint.sh"]
